@@ -1,0 +1,12 @@
+{
+  "name": "devbridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer tools for transforming code, APIs and other development artifacts.",
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  }
+}
