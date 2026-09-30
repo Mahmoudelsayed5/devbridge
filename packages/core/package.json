@@ -1,0 +1,13 @@
+{
+  "name": "@devbridge/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core transformation engine for DevBridge",
+  "main": "dist/index.js",
+  "types": "dist/index.d.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "lint": "eslint ."
+  }
+}
