@@ -1,3 +1,6 @@
+export * from "./ir";
+export * from "./context";
+
 export interface Transformation {
   readonly sourceFormat: string;
   readonly targetFormat: string;
