@@ -30,7 +30,7 @@ describe("parseJson", () => {
     expect(user?.properties[0].name).toBe("id");
     expect(user?.properties[0].value).toEqual({
       kind: "primitive",
-      type: "number",
+      type: "integer",
     });
 
     expect(user?.properties[1].name).toBe("name");
@@ -70,5 +70,28 @@ describe("parseJson", () => {
     expect(names).toContain("CustomerAddress");
 
     expect(names).not.toContain("Address");
+  });
+
+  it("distinguishes integer and decimal values", () => {
+    const input = JSON.stringify({
+      age: 25,
+      price: 19.99,
+    });
+
+    const { root } = parseJson(input);
+
+    const age = root.properties.find((property) => property.name === "age");
+
+    const price = root.properties.find((property) => property.name === "price");
+
+    expect(age?.value).toEqual({
+      kind: "primitive",
+      type: "integer",
+    });
+
+    expect(price?.value).toEqual({
+      kind: "primitive",
+      type: "number",
+    });
   });
 });

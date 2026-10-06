@@ -1,5 +1,6 @@
 export type PrimitiveType =
   | "string"
+  | "integer"
   | "number"
   | "boolean"
   | "null"

@@ -54,7 +54,7 @@ function parseValue(
   if (typeof value === "number") {
     return {
       kind: "primitive",
-      type: "number",
+      type: Number.isInteger(value) ? "integer" : "number",
     };
   }
 

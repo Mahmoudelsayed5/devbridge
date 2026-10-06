@@ -51,6 +51,9 @@ function primitiveToTypeScript(type: PrimitiveType): string {
     case "string":
       return "string";
 
+    case "integer":
+      return "number";
+
     case "number":
       return "number";
 
