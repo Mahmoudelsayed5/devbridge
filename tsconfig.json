@@ -1,17 +1,14 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "declaration": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "skipLibCheck": true,
-    "noEmitOnError": true
-  },
-  "exclude": [
-    "node_modules",
-    "dist"
-    ]
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/json-transformer" },
+    { "path": "packages/typescript-transformer" },
+    { "path": "packages/java-transformer" },
+    { "path": "packages/go-transformer" },
+    { "path": "packages/python-transformer" },
+    { "path": "packages/csharp-transformer" },
+    { "path": "packages/engine" },
+    { "path": "packages/cli" }
+  ]
 }

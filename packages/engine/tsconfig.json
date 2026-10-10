@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../json-transformer" },
+    { "path": "../typescript-transformer" },
+    { "path": "../java-transformer" },
+    { "path": "../go-transformer" },
+    { "path": "../python-transformer" },
+    { "path": "../csharp-transformer" }
+  ]
+}

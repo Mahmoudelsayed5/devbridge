@@ -2,14 +2,19 @@
   "name": "devbridge",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Developer tools for transforming code, APIs and other development artifacts.",
   "packageManager": "pnpm@12.8.1",
   "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "devbridge": "node packages/cli/dist/bin.js"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   }

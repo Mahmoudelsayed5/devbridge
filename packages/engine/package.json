@@ -1,0 +1,31 @@
+{
+  "name": "@devbridge/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wires every DevBridge parser and generator into one transformation entry point",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "devDependencies": {
+    "vitest": "^5.0.2"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@devbridge/core": "workspace:*",
+    "@devbridge/csharp-transformer": "workspace:*",
+    "@devbridge/go-transformer": "workspace:*",
+    "@devbridge/java-transformer": "workspace:*",
+    "@devbridge/json-transformer": "workspace:*",
+    "@devbridge/python-transformer": "workspace:*",
+    "@devbridge/typescript-transformer": "workspace:*"
+  }
+}
