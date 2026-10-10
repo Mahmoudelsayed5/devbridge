@@ -57,6 +57,22 @@ pnpm test
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
 9 packages build clean, 121 tests pass.
 
+### Verifying generated code actually compiles
+
+The unit tests assert on generated text. This asserts the text is valid in the
+target language, which is a stronger and different claim:
+
+```bash
+pnpm verify:generated
+```
+
+It generates `fixtures/kitchen-sink.json` into every target and runs that
+language's real toolchain: `tsc --strict`, `javac -Xlint:all`, `go vet` plus a
+`gofmt -l` canonical-formatting check, `py_compile` plus `typing.get_type_hints`
+on every dataclass, and `dotnet build` with `TreatWarningsAsErrors`. A missing
+toolchain is skipped; `pnpm verify:generated:strict` makes it a failure instead,
+which is what CI uses.
+
 ## CLI
 
 ```bash

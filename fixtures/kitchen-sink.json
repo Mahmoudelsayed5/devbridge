@@ -1,0 +1,17 @@
+{
+  "id": 42,
+  "user-name": "Mahmoud",
+  "price": 19.99,
+  "active": true,
+  "nickname": null,
+  "tags": ["java", "spring"],
+  "scores": [1, 2.5, null],
+  "mixed": [1, "a"],
+  "empty": [],
+  "company": { "address": { "city": "Cairo" } },
+  "customer": { "address": { "city": "Alexandria" } },
+  "orders": [
+    { "total": 9.99, "profile": { "city": "Giza" } },
+    { "total": 5, "note": "gift", "profile": { "city": "Luxor", "zip": 123 } }
+  ]
+}

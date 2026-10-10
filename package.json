@@ -11,6 +11,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:generated": "node scripts/verify-generated.mjs",
+    "verify:generated:strict": "node scripts/verify-generated.mjs --strict",
     "devbridge": "node packages/cli/dist/bin.js"
   },
   "devDependencies": {
