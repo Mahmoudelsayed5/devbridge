@@ -1,270 +1,251 @@
 import type {
-  ArrayNode,
-  ObjectNode,
-  PrimitiveNode,
-  TypeNode,
+  Diagnostic,
+  ParseOptions,
+  ParseResult,
+  SourceParser,
 } from "@devbridge/core";
+import { TransformationError, offsetToPosition } from "@devbridge/core";
 
-import { TransformationContext } from "@devbridge/core";
+import { buildIr } from "./builder.js";
+import type { ObjectShape, Shape } from "./shape.js";
+import { inferShape, mergeShapes } from "./shape.js";
 
-export function parseJson(
-  input: string,
-  rootName = "Root",
-): {
-  root: ObjectNode;
-  context: TransformationContext;
-} {
-  const value: unknown = JSON.parse(input);
+export interface JsonParseOptions extends ParseOptions {
+  /**
+   * How to treat a JSON document whose root is an array.
+   * - `item` (default): the root type describes one element of the array.
+   * - `error`: reject the document.
+   */
+  readonly arrayRoot?: "item" | "error";
+}
 
-  const context = new TransformationContext();
+/**
+ * Removes a leading UTF-8 byte order mark.
+ *
+ * `JSON.parse` rejects a BOM, and Windows editors (and PowerShell's
+ * `Set-Content -Encoding utf8`) write one by default, so a perfectly good
+ * document would otherwise be reported as a syntax error. Stripping happens
+ * before anything else so diagnostic offsets refer to the text we parsed.
+ */
+function stripBom(input: string): string {
+  return input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
+}
 
-  const root = parseValue(value, rootName, context);
+/** Extracts position information out of a native `JSON.parse` error message. */
+function describeSyntaxError(input: string, error: unknown): Diagnostic {
+  const message = error instanceof Error ? error.message : String(error);
 
-  if (root.kind !== "object") {
-    throw new Error("JSON root must be an object");
+  const lineColumn = /line (\d+) column (\d+)/i.exec(message);
+  const positionMatch = /position (\d+)/i.exec(message);
+
+  let line: number | undefined;
+  let column: number | undefined;
+  let offset: number | undefined;
+
+  if (positionMatch?.[1] !== undefined) {
+    offset = Number(positionMatch[1]);
+  }
+
+  if (lineColumn?.[1] !== undefined && lineColumn[2] !== undefined) {
+    line = Number(lineColumn[1]);
+    column = Number(lineColumn[2]);
+  } else if (offset !== undefined) {
+    const position = offsetToPosition(input, offset);
+
+    line = position.line;
+    column = position.column;
   }
 
   return {
-    root,
-    context,
+    severity: "error",
+    code: "json/invalid-syntax",
+    message: message.replace(/^JSON\.parse:\s*/, ""),
+    ...(offset === undefined ? {} : { offset }),
+    ...(line === undefined ? {} : { line }),
+    ...(column === undefined ? {} : { column }),
+    hint: "Check for a trailing comma, an unquoted key or a missing bracket.",
   };
 }
 
-function parseValue(
-  value: unknown,
-  name: string,
-  context: TransformationContext,
-  parentName?: string,
-): TypeNode {
+const EMPTY_INPUT: Diagnostic = {
+  severity: "error",
+  code: "json/empty-input",
+  message: "The input is empty.",
+  line: 1,
+  column: 1,
+  hint: "Paste or load a JSON document first.",
+};
+
+function rootKindDiagnostic(actual: string): Diagnostic {
+  return {
+    severity: "error",
+    code: "json/unsupported-root",
+    message: "JSON root must be an object",
+    line: 1,
+    column: 1,
+    hint: `Found ${actual}. Wrap the value in an object, for example {"value": ...}.`,
+  };
+}
+
+function describeValue(value: unknown): string {
   if (value === null) {
-    const node: PrimitiveNode = {
-      kind: "primitive",
-      type: "null",
-    };
-
-    return node;
-  }
-  if (typeof value === "string") {
-    return {
-      kind: "primitive",
-      type: "string",
-    };
-  }
-
-  if (typeof value === "number") {
-    return {
-      kind: "primitive",
-      type: Number.isInteger(value) ? "integer" : "number",
-    };
-  }
-
-  if (typeof value === "boolean") {
-    return {
-      kind: "primitive",
-      type: "boolean",
-    };
+    return "null";
   }
 
   if (Array.isArray(value)) {
-    return parseArray(value, name, context, parentName);
+    return "an array";
   }
 
-  if (typeof value === "object") {
-    return parseObject(
-      value as Record<string, unknown>,
-      name,
-      context,
-      parentName,
-    );
-  }
-
-  throw new Error(`Unsupported JSON value: ${typeof value}`);
+  return `a ${typeof value}`;
 }
 
-function parseArray(
-  values: unknown[],
-  name: string,
-  context: TransformationContext,
-  parentName?: string,
-): ArrayNode {
-  if (values.length === 0) {
-    return {
-      kind: "array",
-      elementType: {
-        kind: "primitive",
-        type: "unknown",
-      },
-    };
-  }
-
-  const objectValues = values.filter(
-    (value): value is Record<string, unknown> =>
-      value !== null && typeof value === "object" && !Array.isArray(value),
-  );
-
-  if (objectValues.length === values.length) {
-    const objectType = mergeObjectArray(
-      objectValues,
-      name,
-      context,
-      parentName,
-    );
-
-    return {
-      kind: "array",
-      elementType: objectType,
-    };
-  }
-
-  const elementTypes = values.map((value) =>
-    parseValue(value, `${name}Item`, context),
-  );
-
-  const uniqueTypes = new Map<string, TypeNode>();
-
-  for (const type of elementTypes) {
-    uniqueTypes.set(typeKey(type), type);
-  }
-
-  const types = [...uniqueTypes.values()];
-
-  return {
-    kind: "array",
-    elementType:
-      types.length === 1
-        ? types[0]
-        : {
-            kind: "union",
-            types,
-          },
-  };
-}
-
-function mergeObjectArray(
-  values: Record<string, unknown>[],
-  name: string,
-  context: TransformationContext,
-  parentName?: string,
-): ObjectNode {
-  const baseName =
-    parentName && parentName !== "Root" ? `${parentName}${name}` : name;
-
-  const typeName = `${baseName}Item`;
-
-  const allPropertyNames = new Set<string>();
+/**
+ * Reduces a root array to the single object shape that describes its elements.
+ * Returns undefined when the array holds no objects.
+ */
+function rootShapeFromArray(values: readonly unknown[]): ObjectShape | undefined {
+  let merged: Shape | undefined;
 
   for (const value of values) {
-    for (const propertyName of Object.keys(value)) {
-      allPropertyNames.add(propertyName);
+    const shape = inferShape(value);
+
+    merged = merged === undefined ? shape : mergeShapes(merged, shape);
+  }
+
+  return merged !== undefined && merged.kind === "object" ? merged : undefined;
+}
+
+/** Reports every problem that would stop `parseJson` from producing IR. */
+export function validateJson(input: string): readonly Diagnostic[] {
+  const text = stripBom(input);
+
+  if (text.trim().length === 0) {
+    return [EMPTY_INPUT];
+  }
+
+  let value: unknown;
+
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    return [describeSyntaxError(text, error)];
+  }
+
+  if (Array.isArray(value)) {
+    if (rootShapeFromArray(value) === undefined) {
+      return [
+        {
+          severity: "error",
+          code: "json/unsupported-root",
+          message:
+            "A root array must contain at least one object to describe.",
+          line: 1,
+          column: 1,
+          hint: 'Wrap the value in an object, for example {"items": [...]}.',
+        },
+      ];
     }
+
+    return [];
   }
 
-  const properties = [...allPropertyNames].map((propertyName) => {
-    const propertyValues = values
-      .filter((value) =>
-        Object.prototype.hasOwnProperty.call(value, propertyName),
-      )
-      .map((value) => value[propertyName]);
+  if (value === null || typeof value !== "object") {
+    return [rootKindDiagnostic(describeValue(value))];
+  }
 
-    const optional = propertyValues.length < values.length;
+  return [];
+}
 
-    const propertyTypes = propertyValues.map((value) =>
-      parseValue(value, toTypeName(propertyName), context),
-    );
+/**
+ * Parses a JSON document into the shared IR.
+ *
+ * @throws {TransformationError} when the document cannot be represented.
+ */
+export function parseJson(
+  input: string,
+  options: JsonParseOptions | string = {},
+): ParseResult {
+  // The original signature took a positional root name; keep it working.
+  const resolved: JsonParseOptions =
+    typeof options === "string" ? { rootName: options } : options;
 
-    const uniqueTypes = new Map<string, TypeNode>();
+  const rootName = resolved.rootName ?? "Root";
+  const arrayRoot = resolved.arrayRoot ?? "item";
 
-    for (const type of propertyTypes) {
-      uniqueTypes.set(typeKey(type), type);
+  const text = stripBom(input);
+
+  if (text.trim().length === 0) {
+    throw new TransformationError(EMPTY_INPUT.message, [EMPTY_INPUT]);
+  }
+
+  let value: unknown;
+
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    const diagnostic = describeSyntaxError(text, error);
+
+    throw new TransformationError(diagnostic.message, [diagnostic]);
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  let shape: ObjectShape;
+
+  if (Array.isArray(value)) {
+    if (arrayRoot === "error") {
+      const diagnostic = rootKindDiagnostic("an array");
+
+      throw new TransformationError(diagnostic.message, [diagnostic]);
     }
 
-    const types = [...uniqueTypes.values()];
+    const fromArray = rootShapeFromArray(value);
 
-    const propertyType: TypeNode =
-      types.length === 1
-        ? types[0]
-        : {
-            kind: "union",
-            types,
-          };
+    if (fromArray === undefined) {
+      const diagnostic: Diagnostic = {
+        severity: "error",
+        code: "json/unsupported-root",
+        message: "A root array must contain at least one object to describe.",
+        line: 1,
+        column: 1,
+        hint: 'Wrap the value in an object, for example {"items": [...]}.',
+      };
 
-    return {
-      name: propertyName,
-      value: propertyType,
-      optional,
-    };
-  });
+      throw new TransformationError(diagnostic.message, [diagnostic]);
+    }
 
-  const object: ObjectNode = {
-    kind: "object",
-    name: typeName,
-    properties,
-  };
+    shape = fromArray;
 
-  context.registerType(object);
+    diagnostics.push({
+      severity: "info",
+      code: "json/array-root",
+      message: `The root value is an array, so "${rootName}" describes a single element.`,
+    });
+  } else if (value === null || typeof value !== "object") {
+    const diagnostic = rootKindDiagnostic(describeValue(value));
 
-  return object;
-}
+    throw new TransformationError(diagnostic.message, [diagnostic]);
+  } else {
+    const inferred = inferShape(value);
 
-function typeKey(type: TypeNode): string {
-  switch (type.kind) {
-    case "primitive":
-      return `primitive:${type.type}`;
+    // typeof value === "object" and not an array, so this always holds.
+    if (inferred.kind !== "object") {
+      const diagnostic = rootKindDiagnostic(describeValue(value));
 
-    case "object":
-      return `object:${type.name}`;
+      throw new TransformationError(diagnostic.message, [diagnostic]);
+    }
 
-    case "array":
-      return `array:${typeKey(type.elementType)}`;
-
-    case "union":
-      return `union:${type.types.map(typeKey).sort().join("|")}`;
-  }
-}
-
-function parseObject(
-  value: Record<string, unknown>,
-  name: string,
-  context: TransformationContext,
-  parentName?: string,
-): ObjectNode {
-  const typeName =
-    parentName && parentName !== "Root" ? `${parentName}${name}` : name;
-  const existing = context.getType(typeName);
-  if (existing) {
-    return existing;
+    shape = inferred;
   }
 
-  const node: ObjectNode = {
-    kind: "object",
-    name: typeName,
-    properties: [],
-  };
+  const { root, context } = buildIr(shape, rootName);
 
-  context.registerType(node);
-
-  const properties = Object.entries(value).map(
-    ([propertyName, propertyValue]) => ({
-      name: propertyName,
-      value: parseValue(propertyValue, toTypeName(propertyName), context, name),
-      optional: false,
-    }),
-  );
-
-  const completedNode: ObjectNode = {
-    ...node,
-    properties,
-  };
-
-  context.registerType(completedNode);
-
-  return completedNode;
+  return { root, context, diagnostics };
 }
 
-function toTypeName(propertyName: string): string {
-  return propertyName
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join("");
-}
+export const jsonParser: SourceParser = {
+  id: "json",
+  label: "JSON",
+  extensions: ["json"],
+  parse: (input, options) => parseJson(input, options ?? {}),
+  validate: validateJson,
+};

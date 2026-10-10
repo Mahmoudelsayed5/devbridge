@@ -1,0 +1,30 @@
+{
+  "name": "@devbridge/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first command line interface for DevBridge",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "devbridge": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.2"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@devbridge/core": "workspace:*",
+    "@devbridge/engine": "workspace:*"
+  }
+}

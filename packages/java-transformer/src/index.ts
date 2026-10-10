@@ -1,3 +1,8 @@
-export { generateJava, generateJavaFiles } from "./generators/java";
+export {
+  generateJava,
+  generateJavaFiles,
+  javaGenerator,
+  toJavaType,
+} from "./generators/java.js";
 
-export type { JavaFiles } from "./generators/java";
+export type { JavaFiles, JavaOptions } from "./generators/java.js";
