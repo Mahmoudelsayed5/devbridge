@@ -38,6 +38,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Type-checks the app against its own DOM/JSX config and produces the
+      # static bundle, so a broken web MVP fails CI rather than deploy.
+      - name: Build web app
+        run: pnpm build:web
+
       - name: Test
         run: pnpm test
 

@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "verify:generated": "node scripts/verify-generated.mjs",
     "verify:generated:strict": "node scripts/verify-generated.mjs --strict",
-    "devbridge": "node packages/cli/dist/bin.js"
+    "devbridge": "node packages/cli/dist/bin.js",
+    "build:web": "pnpm --filter @devbridge/web build",
+    "dev:web": "pnpm --filter @devbridge/web dev"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
