@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vite/client", "node"],
+    "paths": {
+      "@devbridge/core": ["../../packages/core/src/index.ts"],
+      "@devbridge/engine": ["../../packages/engine/src/index.ts"],
+      "@devbridge/json-transformer": ["../../packages/json-transformer/src/index.ts"],
+      "@devbridge/typescript-transformer": ["../../packages/typescript-transformer/src/index.ts"],
+      "@devbridge/java-transformer": ["../../packages/java-transformer/src/index.ts"],
+      "@devbridge/go-transformer": ["../../packages/go-transformer/src/index.ts"],
+      "@devbridge/python-transformer": ["../../packages/python-transformer/src/index.ts"],
+      "@devbridge/csharp-transformer": ["../../packages/csharp-transformer/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

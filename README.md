@@ -20,7 +20,7 @@ Adding a target language is a generator task, not another end-to-end converter.
 | 1 | JSON → TypeScript | done |
 | 2 | JSON → Java | done |
 | 3 | JSON → Go, Python, C# | done |
-| 4 | Web MVP | not started |
+| 4 | Web MVP | done |
 | 5 | SQL family (ERD / DBML / Mermaid) | not started |
 | 6 | OpenAPI family | not started |
 | 7 | Chrome and VS Code extensions | not started |
@@ -38,6 +38,31 @@ Adding a target language is a generator task, not another end-to-end converter.
 | `@devbridge/csharp-transformer` | IR → C# classes or records |
 | `@devbridge/engine` | Wires every parser and generator into one `transform()` call |
 | `@devbridge/cli` | `devbridge transform`, `devbridge validate`, `devbridge formats` |
+| `@devbridge/web` (`apps/web`) | The web MVP — paste, pick a target, copy or download |
+
+## Web app
+
+```bash
+pnpm dev:web      # http://localhost:5173
+pnpm build:web    # static bundle in apps/web/dist
+```
+
+Paste or open a JSON file, pick one of the five targets, adjust only the
+options that target actually reads, and copy or download the result. Targets
+that emit one file per type (Java, C#) show file tabs and a "Download all"
+button that builds a `.zip` in the browser.
+
+It is a static bundle with **no backend**: the engine runs in the page, so an
+artifact is never uploaded, and nothing is written to `localStorage` — the
+input is gone on refresh, which is what the blueprint asks for. That promise is
+enforced by a test (`local-first.test.ts`) that fails if any shipped module
+references `fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon` or any web
+storage API.
+
+`apps/web/tsconfig.json` deliberately does not extend `tsconfig.base.json`: the
+app needs `moduleResolution: "Bundler"`, JSX and DOM libs, where the libraries
+are built as composite `NodeNext` projects. Vite aliases the workspace packages
+to their TypeScript source, so `pnpm dev:web` needs no prior `tsc -b`.
 
 ## Getting started
 
