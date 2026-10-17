@@ -11,31 +11,40 @@ import {
   TARGETS,
   type OptionState,
 } from "./lib/options.js";
-import { SAMPLE_JSON } from "./lib/sample.js";
-import { availableTargets, runTransform } from "./lib/transform.js";
+import { SAMPLES } from "./lib/sample.js";
+import {
+  availableSources,
+  runTransform,
+  targetsForSource,
+} from "./lib/transform.js";
 import { useDebounced } from "./lib/useDebounced.js";
 
-const targets = availableTargets();
+const sources = availableSources();
 
 export function App(): React.JSX.Element {
-  const [source, setSource] = useState("");
-  const [target, setTarget] = useState(targets[0]?.id ?? "typescript");
+  const [source, setSource] = useState(sources[0]?.id ?? "json");
+  const [text, setText] = useState("");
+  const [target, setTarget] = useState(
+    targetsForSource(sources[0]?.id ?? "json")[0]?.id ?? "typescript",
+  );
   const [options, setOptions] = useState<OptionState>(DEFAULT_OPTIONS);
 
-  const debouncedSource = useDebounced(source);
-  const busy = debouncedSource !== source;
+  const debouncedText = useDebounced(text);
+  const busy = debouncedText !== text;
 
+  const targets = useMemo(() => targetsForSource(source), [source]);
   const descriptor = TARGETS[target];
 
   const outcome = useMemo(
     () =>
       runTransform(
-        debouncedSource,
+        debouncedText,
         target,
         buildGeneratorOptions(target, options),
         options.rootName,
+        source,
       ),
-    [debouncedSource, target, options],
+    [debouncedText, target, options, source],
   );
 
   function selectTarget(next: string): void {
@@ -50,8 +59,27 @@ export function App(): React.JSX.Element {
     }));
   }
 
-  const lineCount = source.length === 0 ? 0 : source.split("\n").length;
-  const byteCount = new TextEncoder().encode(source).length;
+  function selectSource(next: string): void {
+    if (next === source) {
+      return;
+    }
+
+    setSource(next);
+    setText("");
+
+    // The old target belongs to the other IR family and cannot read this one.
+    const first = targetsForSource(next)[0]?.id;
+
+    if (first !== undefined) {
+      selectTarget(first);
+    }
+  }
+
+  const currentSource = sources.find((item) => item.id === source);
+  const lineCount = text.length === 0 ? 0 : text.split("\n").length;
+  const byteCount = new TextEncoder().encode(text).length;
+
+  const noun = source === "sql" ? "table" : "type";
 
   return (
     <div className="app">
@@ -61,7 +89,10 @@ export function App(): React.JSX.Element {
           <p>Turn an artifact you have into the one you need next.</p>
         </div>
 
-        <p className="local-badge" title="No network request is made for any transformation">
+        <p
+          className="local-badge"
+          title="No network request is made for any transformation"
+        >
           Runs entirely in your browser. Nothing is uploaded or stored.
         </p>
       </header>
@@ -69,11 +100,15 @@ export function App(): React.JSX.Element {
       <main className="columns">
         <div className="column">
           <SourcePanel
-            value={source}
-            onChange={setSource}
+            value={text}
+            onChange={setText}
             onLoadSample={() => {
-              setSource(SAMPLE_JSON);
+              setText(SAMPLES[source] ?? "");
             }}
+            sources={sources}
+            source={source}
+            onSelectSource={selectSource}
+            accept={currentSource?.accept ?? ""}
             lineCount={lineCount}
             byteCount={byteCount}
           />
@@ -81,6 +116,7 @@ export function App(): React.JSX.Element {
           <DiagnosticsList
             diagnostics={outcome.diagnostics}
             typeCount={outcome.types.length}
+            noun={noun}
             status={outcome.status}
           />
         </div>
@@ -91,7 +127,9 @@ export function App(): React.JSX.Element {
               <button
                 key={item.id}
                 type="button"
-                className={item.id === target ? "target target-active" : "target"}
+                className={
+                  item.id === target ? "target target-active" : "target"
+                }
                 aria-pressed={item.id === target}
                 onClick={() => {
                   selectTarget(item.id);
@@ -120,13 +158,11 @@ export function App(): React.JSX.Element {
       </main>
 
       <footer className="colophon">
-        <span>
-          Source → Parser → Shared IR → Generator → Target
-        </span>
+        <span>Source → Parser → Shared IR → Generator → Target</span>
         <span>
           {outcome.types.length > 0
             ? outcome.types.join(" · ")
-            : "Paste or load a JSON document to begin"}
+            : `Paste or load a ${currentSource?.label ?? ""} document to begin`}
         </span>
       </footer>
     </div>

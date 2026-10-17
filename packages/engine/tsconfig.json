@@ -4,14 +4,39 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../core" },
-    { "path": "../json-transformer" },
-    { "path": "../typescript-transformer" },
-    { "path": "../java-transformer" },
-    { "path": "../go-transformer" },
-    { "path": "../python-transformer" },
-    { "path": "../csharp-transformer" }
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../json-transformer"
+    },
+    {
+      "path": "../typescript-transformer"
+    },
+    {
+      "path": "../java-transformer"
+    },
+    {
+      "path": "../go-transformer"
+    },
+    {
+      "path": "../python-transformer"
+    },
+    {
+      "path": "../csharp-transformer"
+    },
+    {
+      "path": "../sql-transformer"
+    },
+    {
+      "path": "../mermaid-transformer"
+    },
+    {
+      "path": "../dbml-transformer"
+    }
   ]
 }

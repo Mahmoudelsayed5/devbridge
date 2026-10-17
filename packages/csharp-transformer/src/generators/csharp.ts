@@ -276,6 +276,7 @@ export function generateCSharpFiles(
 
 export const cSharpGenerator: TargetGenerator = {
   id: "csharp",
+  irKind: "type-graph",
   label: "C#",
   extension: "cs",
   filePerType: true,

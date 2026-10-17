@@ -239,6 +239,7 @@ export function generatePython(
 
 export const pythonGenerator: TargetGenerator = {
   id: "python",
+  irKind: "type-graph",
   label: "Python",
   extension: "py",
   filePerType: false,

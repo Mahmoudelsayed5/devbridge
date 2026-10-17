@@ -13,6 +13,8 @@ const CHECKBOX_LABELS: Partial<Record<OptionKey, string>> = {
   useRequired: "required members (C# 11+)",
   exportTypes: "export declarations",
   pointersForOptional: "Pointers for optional fields",
+  attributes: "Show columns",
+  simpleTypes: "Drop type arguments",
 };
 
 export function OptionsPanel({

@@ -139,6 +139,7 @@ export function generateTypeScript(
 
 export const typeScriptGenerator: TargetGenerator = {
   id: "typescript",
+  irKind: "type-graph",
   label: "TypeScript",
   extension: "ts",
   filePerType: false,

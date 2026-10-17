@@ -149,13 +149,30 @@ body {
   font-size: 12px;
 }
 
-.format-tag {
-  padding: 3px 8px;
-  border-radius: 5px;
+.source-select select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   background: var(--code-bg);
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11.5px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.source-select select:hover {
+  border-color: var(--accent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---------- controls ---------- */

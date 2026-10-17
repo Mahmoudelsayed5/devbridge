@@ -1,6 +1,15 @@
 import type { TransformationContext } from "../context/index.js";
 import type { Diagnostic } from "../diagnostics/index.js";
 import type { ObjectNode } from "../ir/index.js";
+import type { RelationalModel } from "../relational/index.js";
+
+/**
+ * Which intermediate representation a parser produces and a generator
+ * consumes. A parser and a generator can only be paired when these match,
+ * which is what stops the engine from feeding a JSON type graph to an ERD
+ * generator that needs tables and foreign keys.
+ */
+export type IrKind = "type-graph" | "relational";
 
 /** A single emitted artifact. */
 export interface GeneratedFile {
@@ -25,6 +34,11 @@ export interface ParseResult {
   readonly diagnostics: readonly Diagnostic[];
 }
 
+export interface RelationalParseResult {
+  readonly model: RelationalModel;
+  readonly diagnostics: readonly Diagnostic[];
+}
+
 export interface ParseOptions {
   /** Name given to the root type. Defaults to `Root`. */
   readonly rootName?: string;
@@ -46,11 +60,15 @@ export interface GeneratorOptions {
   readonly jsonAnnotations?: boolean;
 }
 
-/** Turns source text into IR. One parser per source format. */
-export interface SourceParser {
+interface FormatMeta {
   /** Stable id used by the CLI and the registry, for example `json`. */
   readonly id: string;
   readonly label: string;
+}
+
+/** Turns source text into the type-graph IR. */
+export interface SourceParser extends FormatMeta {
+  readonly irKind: "type-graph";
   /** File extensions this parser accepts, without the leading dot. */
   readonly extensions: readonly string[];
   parse(input: string, options?: ParseOptions): ParseResult;
@@ -58,11 +76,19 @@ export interface SourceParser {
   validate(input: string): readonly Diagnostic[];
 }
 
-/** Turns IR into target source code. One generator per target. */
-export interface TargetGenerator {
-  /** Stable id used by the CLI and the registry, for example `typescript`. */
-  readonly id: string;
-  readonly label: string;
+/** Turns source text into the relational IR. */
+export interface RelationalSourceParser extends FormatMeta {
+  readonly irKind: "relational";
+  readonly extensions: readonly string[];
+  parse(input: string, options?: ParseOptions): RelationalParseResult;
+  validate(input: string): readonly Diagnostic[];
+}
+
+export type AnySourceParser = SourceParser | RelationalSourceParser;
+
+/** Turns the type-graph IR into target source code. */
+export interface TargetGenerator extends FormatMeta {
+  readonly irKind: "type-graph";
   /** Primary file extension, without the leading dot. */
   readonly extension: string;
   /** True when the target emits one file per type. */
@@ -73,3 +99,13 @@ export interface TargetGenerator {
     options?: GeneratorOptions,
   ): GenerateResult;
 }
+
+/** Turns the relational IR into a diagram or schema document. */
+export interface RelationalGenerator extends FormatMeta {
+  readonly irKind: "relational";
+  readonly extension: string;
+  readonly filePerType: boolean;
+  generate(model: RelationalModel, options?: GeneratorOptions): GenerateResult;
+}
+
+export type AnyTargetGenerator = TargetGenerator | RelationalGenerator;

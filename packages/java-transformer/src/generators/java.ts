@@ -336,6 +336,7 @@ export function generateJava(
 
 export const javaGenerator: TargetGenerator = {
   id: "java",
+  irKind: "type-graph",
   label: "Java",
   extension: "java",
   filePerType: true,

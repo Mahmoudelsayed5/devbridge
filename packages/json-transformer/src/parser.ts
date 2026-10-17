@@ -244,6 +244,7 @@ export function parseJson(
 
 export const jsonParser: SourceParser = {
   id: "json",
+  irKind: "type-graph",
   label: "JSON",
   extensions: ["json"],
   parse: (input, options) => parseJson(input, options ?? {}),

@@ -1,17 +1,36 @@
 import { useId, useRef } from "react";
 
+interface SourceOption {
+  readonly id: string;
+  readonly label: string;
+}
+
 interface SourcePanelProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly onLoadSample: () => void;
+  readonly sources: readonly SourceOption[];
+  readonly source: string;
+  readonly onSelectSource: (source: string) => void;
+  /** Accept list for the file picker, e.g. ".sql,.ddl". */
+  readonly accept: string;
   readonly lineCount: number;
   readonly byteCount: number;
 }
+
+const PLACEHOLDERS: Readonly<Record<string, string>> = {
+  json: 'Paste JSON here, for example {"user": {"id": 1}}',
+  sql: "Paste CREATE TABLE statements here",
+};
 
 export function SourcePanel({
   value,
   onChange,
   onLoadSample,
+  sources,
+  source,
+  onSelectSource,
+  accept,
   lineCount,
   byteCount,
 }: SourcePanelProps): React.JSX.Element {
@@ -34,22 +53,35 @@ export function SourcePanel({
     event.target.value = "";
   }
 
+  const current = sources.find((item) => item.id === source);
+
   return (
     <section className="panel" aria-labelledby={`${inputId}-heading`}>
       <header className="panel-head">
         <h2 id={`${inputId}-heading`}>Source</h2>
 
         <div className="panel-actions">
-          <span className="format-tag">JSON</span>
+          <label className="source-select">
+            <span className="visually-hidden">Source format</span>
+            <select
+              value={source}
+              onChange={(event) => {
+                onSelectSource(event.target.value);
+              }}
+            >
+              {sources.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <button type="button" onClick={onLoadSample}>
             Load sample
           </button>
 
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-          >
+          <button type="button" onClick={() => fileInput.current?.click()}>
             Open file…
           </button>
 
@@ -66,7 +98,7 @@ export function SourcePanel({
           <input
             ref={fileInput}
             type="file"
-            accept=".json,application/json,text/plain"
+            accept={`${accept},text/plain`}
             hidden
             onChange={(event) => {
               void handleFile(event);
@@ -81,8 +113,8 @@ export function SourcePanel({
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
-        placeholder='Paste JSON here, for example {"user": {"id": 1}}'
-        aria-label="JSON source"
+        placeholder={PLACEHOLDERS[source] ?? "Paste your artifact here"}
+        aria-label={`${current?.label ?? "Source"} source`}
         onChange={(event) => {
           onChange(event.target.value);
         }}

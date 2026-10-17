@@ -1,0 +1,29 @@
+{
+  "name": "@devbridge/dbml-transformer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DBML generator for DevBridge",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@dbml/core": "^10.3.1",
+    "@devbridge/sql-transformer": "workspace:*",
+    "vitest": "^5.0.2"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@devbridge/core": "workspace:*"
+  }
+}
