@@ -3,6 +3,8 @@ import type { Diagnostic } from "@devbridge/core";
 interface DiagnosticsListProps {
   readonly diagnostics: readonly Diagnostic[];
   readonly typeCount: number;
+  /** What the count refers to: "type" for JSON, "table" for SQL. */
+  readonly noun: string;
   readonly status: "empty" | "ok" | "invalid";
 }
 
@@ -17,6 +19,7 @@ function position(diagnostic: Diagnostic): string | undefined {
 export function DiagnosticsList({
   diagnostics,
   typeCount,
+  noun,
   status,
 }: DiagnosticsListProps): React.JSX.Element | null {
   if (status === "empty") {
@@ -30,7 +33,7 @@ export function DiagnosticsList({
     <div className="diagnostics" role="status" aria-live="polite">
       {status === "ok" && errors.length === 0 ? (
         <p className="diag-ok">
-          Valid JSON — {typeCount} {typeCount === 1 ? "type" : "types"} found
+          Valid — {typeCount} {typeCount === 1 ? noun : `${noun}s`} found
         </p>
       ) : null}
 

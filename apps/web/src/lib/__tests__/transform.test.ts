@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { buildGeneratorOptions, DEFAULT_OPTIONS, TARGETS } from "../options.js";
-import { availableTargets, runTransform, validateInput } from "../transform.js";
+import {
+  availableSources,
+  availableTargets,
+  runTransform,
+  targetsForSource,
+  validateInput,
+} from "../transform.js";
 
 const SAMPLE = JSON.stringify({
   id: 1,
@@ -9,6 +15,17 @@ const SAMPLE = JSON.stringify({
   address: { city: "Cairo" },
   orders: [{ total: 1 }, { total: 2, note: "x" }],
 });
+
+const SQL_SAMPLE = `
+  CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE);
+  CREATE TABLE orders (id INT PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id));
+`;
+
+/** An input each source format can actually parse. */
+const INPUT_FOR: Readonly<Record<string, string>> = {
+  json: SAMPLE,
+  sql: SQL_SAMPLE,
+};
 
 describe("runTransform", () => {
   it("reports an empty document as empty, not as an error", () => {
@@ -72,14 +89,68 @@ describe("runTransform", () => {
     ]);
   });
 
-  it("drives every registered target from the same input", () => {
-    for (const target of availableTargets()) {
-      const outcome = runTransform(SAMPLE, target.id);
+  it("drives every registered target from an input of its own family", () => {
+    for (const source of availableSources()) {
+      const input = INPUT_FOR[source.id];
 
-      expect(outcome.status).toBe("ok");
-      expect(outcome.files.length).toBeGreaterThan(0);
-      expect(outcome.preview.length).toBeGreaterThan(0);
+      expect(input, `no fixture for source ${source.id}`).toBeDefined();
+
+      for (const target of targetsForSource(source.id)) {
+        const outcome = runTransform(
+          input as string,
+          target.id,
+          {},
+          undefined,
+          source.id,
+        );
+
+        expect(outcome.status, `${source.id} -> ${target.id}`).toBe("ok");
+        expect(outcome.files.length).toBeGreaterThan(0);
+        expect(outcome.preview.length).toBeGreaterThan(0);
+      }
     }
+  });
+
+  it("transforms SQL into a diagram", () => {
+    const outcome = runTransform(SQL_SAMPLE, "mermaid", {}, undefined, "sql");
+
+    expect(outcome.status).toBe("ok");
+    expect(outcome.types).toEqual(["users", "orders"]);
+    expect(outcome.preview).toContain("erDiagram");
+    expect(outcome.preview).toContain("users ||--o{ orders");
+  });
+
+  it("reports a cross-family pairing as a diagnostic, not a crash", () => {
+    const outcome = runTransform(SAMPLE, "mermaid", {}, undefined, "json");
+
+    expect(outcome.status).toBe("invalid");
+    expect(outcome.diagnostics[0]?.message).toContain("cannot read");
+  });
+});
+
+describe("source and target pairing", () => {
+  it("lists both sources with a file-picker accept list", () => {
+    expect(availableSources().map((source) => source.id)).toEqual([
+      "json",
+      "sql",
+    ]);
+
+    expect(availableSources()[1]?.accept).toBe(".sql,.ddl");
+  });
+
+  it("offers only compatible targets for each source", () => {
+    expect(targetsForSource("json").map((t) => t.id)).toEqual([
+      "typescript",
+      "java",
+      "go",
+      "python",
+      "csharp",
+    ]);
+
+    expect(targetsForSource("sql").map((t) => t.id)).toEqual([
+      "mermaid",
+      "dbml",
+    ]);
   });
 });
 
@@ -145,18 +216,28 @@ describe("buildGeneratorOptions", () => {
   });
 
   it("produces options every generator accepts end to end", () => {
-    for (const [target, descriptor] of Object.entries(TARGETS)) {
-      const options = buildGeneratorOptions(target, {
-        ...DEFAULT_OPTIONS,
-        packageName: "Example.Pkg",
-        style: descriptor.styles?.[1]?.value ?? "",
-        indent: "4",
-        header: true,
-      });
+    for (const source of availableSources()) {
+      for (const target of targetsForSource(source.id)) {
+        const descriptor = TARGETS[target.id];
 
-      const outcome = runTransform(SAMPLE, target, options);
+        const options = buildGeneratorOptions(target.id, {
+          ...DEFAULT_OPTIONS,
+          packageName: "Example.Pkg",
+          style: descriptor?.styles?.[1]?.value ?? "",
+          indent: "4",
+          header: true,
+        });
 
-      expect(outcome.status, `${target} failed`).toBe("ok");
+        const outcome = runTransform(
+          INPUT_FOR[source.id] as string,
+          target.id,
+          options,
+          undefined,
+          source.id,
+        );
+
+        expect(outcome.status, `${target.id} failed`).toBe("ok");
+      }
     }
   });
 

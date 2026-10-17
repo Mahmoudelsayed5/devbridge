@@ -1,6 +1,12 @@
 import type { Diagnostic, GeneratedFile, GeneratorOptions } from "@devbridge/core";
 import { TransformationError } from "@devbridge/core";
-import { listTargets, transform, validate } from "@devbridge/engine";
+import {
+  listSources,
+  listTargets,
+  targetsFor,
+  transform,
+  validate,
+} from "@devbridge/engine";
 
 export type TransformStatus = "empty" | "ok" | "invalid";
 
@@ -56,7 +62,8 @@ export function runTransform(
       diagnostics: result.diagnostics,
       files: result.files,
       preview: result.preview,
-      types: result.types,
+      // Type names for JSON, table names for SQL.
+      types: result.names,
     };
   } catch (error) {
     if (error instanceof TransformationError) {
@@ -125,4 +132,29 @@ export interface TargetInfo {
 
 export function availableTargets(): readonly TargetInfo[] {
   return listTargets();
+}
+
+export interface SourceInfo extends TargetInfo {
+  /** Extensions the file picker should accept, with the leading dot. */
+  readonly accept: string;
+}
+
+export function availableSources(): readonly SourceInfo[] {
+  return listSources().map((source) => ({
+    id: source.id,
+    label: source.label,
+    accept: source.extensions.map((extension) => `.${extension}`).join(","),
+  }));
+}
+
+/**
+ * Targets that can read what `source` produces.
+ *
+ * A JSON document and a SQL schema are not interchangeable: the first
+ * describes the shape of a value, the second describes tables and their
+ * relationships. The picker only ever offers compatible pairs, so the user
+ * cannot construct the error in the first place.
+ */
+export function targetsForSource(source: string): readonly TargetInfo[] {
+  return targetsFor(source);
 }

@@ -181,6 +181,7 @@ export function generateGo(
 
 export const goGenerator: TargetGenerator = {
   id: "go",
+  irKind: "type-graph",
   label: "Go",
   extension: "go",
   filePerType: false,

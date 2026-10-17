@@ -14,7 +14,9 @@ export type OptionKey =
   | "useRequired"
   | "exportTypes"
   | "pointersForOptional"
-  | "fieldStyle";
+  | "fieldStyle"
+  | "simpleTypes"
+  | "attributes";
 
 export interface OptionState {
   rootName: string;
@@ -30,6 +32,8 @@ export interface OptionState {
   pointersForOptional: boolean;
   /** "preserve" | "snake_case" */
   fieldStyle: string;
+  simpleTypes: boolean;
+  attributes: boolean;
 }
 
 export interface TargetDescriptor {
@@ -82,6 +86,16 @@ export const TARGETS: Readonly<Record<string, TargetDescriptor>> = {
     packageLabel: "Namespace",
     packagePlaceholder: "Example.Models",
   },
+  mermaid: {
+    label: "Mermaid ERD",
+    options: ["attributes", "simpleTypes", "indent", "header"],
+  },
+  dbml: {
+    label: "DBML",
+    options: ["packageName", "indent", "header"],
+    packageLabel: "Project",
+    packagePlaceholder: "shop",
+  },
 };
 
 /** Defaults mirror each generator's own defaults, so the UI tells the truth. */
@@ -97,6 +111,8 @@ export const DEFAULT_OPTIONS: OptionState = {
   exportTypes: true,
   pointersForOptional: true,
   fieldStyle: "preserve",
+  simpleTypes: false,
+  attributes: true,
 };
 
 /** Java's generator defaults to no Jackson annotations; everything else to on. */
@@ -175,6 +191,14 @@ export function buildGeneratorOptions(
 
   if (allowed.has("fieldStyle") && state.fieldStyle.length > 0) {
     options["fieldStyle"] = state.fieldStyle;
+  }
+
+  if (allowed.has("simpleTypes")) {
+    options["simpleTypes"] = state.simpleTypes;
+  }
+
+  if (allowed.has("attributes")) {
+    options["attributes"] = state.attributes;
   }
 
   return options as GeneratorOptions;

@@ -6,7 +6,7 @@ import type { Diagnostic, GeneratorOptions } from "@devbridge/core";
 import { TransformationError, formatDiagnostic } from "@devbridge/core";
 import {
   listSources,
-  listTargets,
+  targetsFor,
   sourceForFile,
   transform,
   validate,
@@ -25,6 +25,10 @@ Usage:
   devbridge validate  <file|-> [--from <source>]
   devbridge formats
   devbridge --help
+
+Sources and the targets they feed:
+  json  ->  typescript, java, go, python, csharp
+  sql   ->  mermaid, dbml
 
 Options:
   --to <target>        Target format. Required for transform.
@@ -146,16 +150,17 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   try {
     switch (command) {
       case "formats": {
-        io.out("Sources:");
+        // Grouped by IR family, because only same-family pairs are valid.
+        for (const source of listSources()) {
+          io.out(
+            `${source.id.padEnd(12)}${source.label}  (.${source.extensions.join(", .")})`,
+          );
 
-        for (const format of listSources()) {
-          io.out(`  ${format.id.padEnd(12)}${format.label}`);
-        }
+          for (const target of targetsFor(source.id)) {
+            io.out(`  -> ${target.id.padEnd(12)}${target.label}`);
+          }
 
-        io.out("Targets:");
-
-        for (const format of listTargets()) {
-          io.out(`  ${format.id.padEnd(12)}${format.label}`);
+          io.out("");
         }
 
         return 0;
@@ -188,16 +193,18 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
           );
         }
 
+        const input = await readInput(file, io);
+        const source = resolveSource(values.from, file);
+
+        // Resolved first, so the suggestion lists only compatible targets.
         if (values.to === undefined) {
           throw new TransformationError(
-            `transform needs --to. Available targets: ${listTargets()
+            `transform needs --to. Targets for ${source}: ${targetsFor(source)
               .map((format) => format.id)
               .join(", ")}.`,
           );
         }
 
-        const input = await readInput(file, io);
-        const source = resolveSource(values.from, file);
         const indent = indentFrom(values.indent);
 
         const generatorOptions: GeneratorOptions = {

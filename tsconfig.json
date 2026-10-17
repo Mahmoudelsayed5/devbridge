@@ -1,14 +1,41 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/core" },
-    { "path": "packages/json-transformer" },
-    { "path": "packages/typescript-transformer" },
-    { "path": "packages/java-transformer" },
-    { "path": "packages/go-transformer" },
-    { "path": "packages/python-transformer" },
-    { "path": "packages/csharp-transformer" },
-    { "path": "packages/engine" },
-    { "path": "packages/cli" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/json-transformer"
+    },
+    {
+      "path": "packages/typescript-transformer"
+    },
+    {
+      "path": "packages/java-transformer"
+    },
+    {
+      "path": "packages/go-transformer"
+    },
+    {
+      "path": "packages/python-transformer"
+    },
+    {
+      "path": "packages/csharp-transformer"
+    },
+    {
+      "path": "packages/sql-transformer"
+    },
+    {
+      "path": "packages/mermaid-transformer"
+    },
+    {
+      "path": "packages/dbml-transformer"
+    },
+    {
+      "path": "packages/engine"
+    },
+    {
+      "path": "packages/cli"
+    }
   ]
 }

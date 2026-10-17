@@ -1,5 +1,5 @@
 import { TransformationError } from "../diagnostics/index.js";
-import type { SourceParser, TargetGenerator } from "./types.js";
+import type { AnySourceParser, AnyTargetGenerator } from "./types.js";
 
 export class Registry<
   T extends { readonly id: string; readonly label: string },
@@ -38,13 +38,13 @@ export class Registry<
   }
 }
 
-export class ParserRegistry extends Registry<SourceParser> {
+export class ParserRegistry extends Registry<AnySourceParser> {
   constructor() {
     super("source format");
   }
 
   /** Finds a parser by file extension, with or without a leading dot. */
-  findByExtension(extension: string): SourceParser | undefined {
+  findByExtension(extension: string): AnySourceParser | undefined {
     const normalized = extension.replace(/^\./, "").toLowerCase();
 
     return this.list().find((parser) =>
@@ -53,7 +53,7 @@ export class ParserRegistry extends Registry<SourceParser> {
   }
 }
 
-export class GeneratorRegistry extends Registry<TargetGenerator> {
+export class GeneratorRegistry extends Registry<AnyTargetGenerator> {
   constructor() {
     super("target format");
   }
