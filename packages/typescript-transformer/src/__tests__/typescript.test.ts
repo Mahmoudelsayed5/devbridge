@@ -167,3 +167,9 @@ describe("generateTypeScript", () => {
     expect(generated.preview).toBe(generated.files[0]?.content);
   });
 });
+
+describe("integer width", () => {
+  it("still emits number, because TypeScript has one numeric type", () => {
+    expect(generate({ bigId: 1234567890123 })).toContain("bigId: number;");
+  });
+});

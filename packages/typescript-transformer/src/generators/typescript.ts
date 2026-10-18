@@ -34,7 +34,10 @@ function primitiveToTypeScript(type: PrimitiveType): string {
     case "string":
       return "string";
     case "integer":
+    case "long":
     case "number":
+      // TypeScript has a single numeric type. A long beyond 2^53 is already
+      // imprecise, which the parser warns about separately.
       return "number";
     case "boolean":
       return "boolean";

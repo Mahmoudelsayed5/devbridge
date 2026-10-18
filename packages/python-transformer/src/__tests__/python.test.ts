@@ -113,3 +113,9 @@ describe("generatePython", () => {
     expect(generated.files[0]?.path).toBe("models.py");
   });
 });
+
+describe("integer width", () => {
+  it("uses int, because Python integers are arbitrary precision", () => {
+    expect(generate({ bigId: 1234567890123 })).toContain("bigId: int");
+  });
+});

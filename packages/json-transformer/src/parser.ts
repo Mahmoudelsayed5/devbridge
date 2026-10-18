@@ -7,7 +7,7 @@ import type {
 import { TransformationError, offsetToPosition } from "@devbridge/core";
 
 import { buildIr } from "./builder.js";
-import type { ObjectShape, Shape } from "./shape.js";
+import type { InferenceReport, ObjectShape, Shape } from "./shape.js";
 import { inferShape, mergeShapes } from "./shape.js";
 
 export interface JsonParseOptions extends ParseOptions {
@@ -103,17 +103,28 @@ function describeValue(value: unknown): string {
  * Reduces a root array to the single object shape that describes its elements.
  * Returns undefined when the array holds no objects.
  */
-function rootShapeFromArray(values: readonly unknown[]): ObjectShape | undefined {
+function rootShapeFromArray(
+  values: readonly unknown[],
+  report?: InferenceReport,
+): ObjectShape | undefined {
   let merged: Shape | undefined;
 
   for (const value of values) {
-    const shape = inferShape(value);
+    const shape = inferShape(value, report);
 
     merged = merged === undefined ? shape : mergeShapes(merged, shape);
   }
 
   return merged !== undefined && merged.kind === "object" ? merged : undefined;
 }
+
+const UNSAFE_INTEGER: Diagnostic = {
+  severity: "warning",
+  code: "json/unsafe-integer",
+  message:
+    "A whole number outside the safe-integer range was found; JSON.parse has already rounded it.",
+  hint: "The generated type is 64-bit, but the value itself is no longer exact. Treat such ids as strings if the precision matters.",
+};
 
 /** Reports every problem that would stop `parseJson` from producing IR. */
 export function validateJson(input: string): readonly Diagnostic[] {
@@ -189,6 +200,7 @@ export function parseJson(
   }
 
   const diagnostics: Diagnostic[] = [];
+  const report: InferenceReport = { unsafeInteger: false };
   let shape: ObjectShape;
 
   if (Array.isArray(value)) {
@@ -198,7 +210,7 @@ export function parseJson(
       throw new TransformationError(diagnostic.message, [diagnostic]);
     }
 
-    const fromArray = rootShapeFromArray(value);
+    const fromArray = rootShapeFromArray(value, report);
 
     if (fromArray === undefined) {
       const diagnostic: Diagnostic = {
@@ -225,7 +237,7 @@ export function parseJson(
 
     throw new TransformationError(diagnostic.message, [diagnostic]);
   } else {
-    const inferred = inferShape(value);
+    const inferred = inferShape(value, report);
 
     // typeof value === "object" and not an array, so this always holds.
     if (inferred.kind !== "object") {
@@ -235,6 +247,10 @@ export function parseJson(
     }
 
     shape = inferred;
+  }
+
+  if (report.unsafeInteger) {
+    diagnostics.push(UNSAFE_INTEGER);
   }
 
   const { root, context } = buildIr(shape, rootName);

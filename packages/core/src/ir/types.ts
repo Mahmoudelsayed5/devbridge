@@ -6,13 +6,30 @@
  * blueprint, section 14.
  */
 
+/**
+ * `integer` is a whole number that fits in 32 bits; `long` is one that does
+ * not. JSON itself draws no such line — it has a single `number` type — but
+ * every statically typed target does, and silently mapping a 13-digit id onto
+ * a 32-bit `int` overflows it. The distinction is therefore made here, once,
+ * rather than guessed by five generators.
+ */
 export type PrimitiveType =
   | "string"
   | "integer"
+  | "long"
   | "number"
   | "boolean"
   | "null"
   | "unknown";
+
+/** Largest and smallest whole numbers representable in a signed 32-bit int. */
+export const INT32_MAX = 2147483647;
+export const INT32_MIN = -2147483648;
+
+/** Classifies a whole number as `integer` or `long` by magnitude. */
+export function integerWidth(value: number): "integer" | "long" {
+  return value > INT32_MAX || value < INT32_MIN ? "long" : "integer";
+}
 
 export interface PrimitiveNode {
   readonly kind: "primitive";
@@ -51,6 +68,7 @@ export const PRIMITIVE_NODES: {
 } = {
   string: { kind: "primitive", type: "string" },
   integer: { kind: "primitive", type: "integer" },
+  long: { kind: "primitive", type: "long" },
   number: { kind: "primitive", type: "number" },
   boolean: { kind: "primitive", type: "boolean" },
   null: { kind: "primitive", type: "null" },

@@ -139,3 +139,15 @@ describe("cSharpGenerator", () => {
     ]);
   });
 });
+
+describe("integer width", () => {
+  it("uses long beyond the 32-bit range", () => {
+    expect(generate({ bigId: 1234567890123 })).toContain(
+      "public required long BigId { get; set; }",
+    );
+  });
+
+  it("makes an optional long nullable", () => {
+    expect(generate({ rows: [{ id: 5000000000 }, {}] })).toContain("long?");
+  });
+});

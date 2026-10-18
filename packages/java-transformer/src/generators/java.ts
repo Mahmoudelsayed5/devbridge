@@ -66,6 +66,8 @@ function primitiveToJava(type: PrimitiveType, boxed: boolean): string {
       return "String";
     case "integer":
       return boxed ? "Integer" : "int";
+    case "long":
+      return boxed ? "Long" : "long";
     case "number":
       return boxed ? "Double" : "double";
     case "boolean":

@@ -62,6 +62,8 @@ function primitiveToCSharp(type: PrimitiveType): string {
       return "string";
     case "integer":
       return "int";
+    case "long":
+      return "long";
     case "number":
       return "double";
     case "boolean":

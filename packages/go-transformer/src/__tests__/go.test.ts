@@ -105,3 +105,16 @@ describe("generateGo", () => {
     expect(generated.files[0]?.path).toBe("models.go");
   });
 });
+
+describe("integer width", () => {
+  it("uses int64 beyond the 32-bit range and int inside it", () => {
+    const result = collapse(generate({ small: 7, big: 1234567890123 }));
+
+    expect(result).toContain("Small int ");
+    expect(result).toContain("Big int64 ");
+  });
+
+  it("uses a pointer for an optional long", () => {
+    expect(generate({ rows: [{ id: 5000000000 }, {}] })).toContain("*int64");
+  });
+});
