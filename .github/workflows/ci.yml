@@ -35,13 +35,15 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Deliberately before `pnpm build`: the Pages workflow builds the app
+      # from a fresh checkout with no packages/*/dist, so running it here in
+      # the same state is what catches a stale alias or path mapping. Running
+      # it after `tsc -b` would resolve through dist and hide the problem.
+      - name: Build web app (no prior tsc -b, as Pages does it)
+        run: pnpm build:web
+
       - name: Build
         run: pnpm build
-
-      # Type-checks the app against its own DOM/JSX config and produces the
-      # static bundle, so a broken web MVP fails CI rather than deploy.
-      - name: Build web app
-        run: pnpm build:web
 
       - name: Test
         run: pnpm test

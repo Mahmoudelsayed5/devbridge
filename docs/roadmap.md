@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after phase 5 landed (`c3670b2`).
+Last updated after the Pages deployment landed (`25109ef`).
 
 ---
 
@@ -15,7 +15,7 @@ Last updated after phase 5 landed (`c3670b2`).
 | Packages | 12 libraries + 1 web app |
 | Source formats | 2 (JSON, SQL) |
 | Target formats | 7 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML) |
-| Tests | 215, all passing |
+| Tests | 231, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | build + test on Ubuntu and Windows, plus generated-output compilation |
 
@@ -173,9 +173,18 @@ state.
 | Item | Why | Size |
 | --- | --- | --- |
 | **ESLint config** | `lint` scripts were removed rather than left broken | small |
-| **Integer width** | JSON has no int32/int64, so big integers overflow `int` in Go/Java/C#. Should they widen to `long`/`int64`? | small, needs a decision |
 | **Duplicate JSON keys** | `{"a":1,"a":2}` silently keeps the last; detecting it needs a hand-written tokenizer | medium |
-| **Deploy the web app** | It's a static bundle — GitHub Pages would do | small |
+| **A licence** | The repository is public with no `LICENSE` file, which legally means all rights reserved — nobody may use it | small, needs a decision |
+
+**Done since this list was written:**
+
+- ~~Integer width~~ — `integer` and `long` are now distinct in the IR, decided
+  once by `integerWidth`, mapping to `long` / `int64` per target. The parser
+  also warns when a whole number has already lost precision in `JSON.parse`.
+- ~~Deploy the web app~~ — live at
+  <https://mahmoudelsayed5.github.io/devbridge/>, published from `main` by
+  `.github/workflows/deploy-pages.yml`. The repository was made public so that
+  Pages would work on the free plan.
 
 ### Phase 6 — OpenAPI family
 
