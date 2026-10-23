@@ -195,3 +195,21 @@ describe("javaGenerator", () => {
     ]);
   });
 });
+
+describe("integer width", () => {
+  it("uses long for a value beyond the 32-bit range", () => {
+    expect(preview({ id: 1, bigId: 1234567890123 })).toContain(
+      "private long bigId;",
+    );
+  });
+
+  it("boxes a long when the field is optional", () => {
+    const result = preview({ rows: [{ id: 5000000000 }, {}] });
+
+    expect(result).toContain("private Long id;");
+  });
+
+  it("uses List<Long> for a long array", () => {
+    expect(preview({ ids: [5000000000] })).toContain("private List<Long> ids;");
+  });
+});

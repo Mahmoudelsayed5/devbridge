@@ -1,4 +1,5 @@
 import type { PrimitiveType } from "@devbridge/core";
+import { integerWidth } from "@devbridge/core";
 
 /**
  * An inferred structural description of a JSON value.
@@ -49,8 +50,23 @@ function primitiveShape(type: PrimitiveType): PrimitiveShape {
   return { kind: "primitive", type };
 }
 
-/** Infers the shape of a single parsed JSON value. */
-export function inferShape(value: unknown): Shape {
+/**
+ * Collects facts about the document that are worth reporting but are not
+ * part of its shape.
+ */
+export interface InferenceReport {
+  /**
+   * True when a whole number outside the safe-integer range was seen.
+   * `JSON.parse` has already lost precision by that point — the value in
+   * memory is not the value in the document — so the parser warns.
+   */
+  unsafeInteger: boolean;
+}
+
+export function inferShape(
+  value: unknown,
+  report?: InferenceReport,
+): Shape {
   if (value === null) {
     return primitiveShape("null");
   }
@@ -60,8 +76,17 @@ export function inferShape(value: unknown): Shape {
       return primitiveShape("string");
     case "boolean":
       return primitiveShape("boolean");
-    case "number":
-      return primitiveShape(Number.isInteger(value) ? "integer" : "number");
+    case "number": {
+      if (!Number.isInteger(value)) {
+        return primitiveShape("number");
+      }
+
+      if (report !== undefined && !Number.isSafeInteger(value)) {
+        report.unsafeInteger = true;
+      }
+
+      return primitiveShape(integerWidth(value));
+    }
     case "object":
       break;
     default:
@@ -73,7 +98,7 @@ export function inferShape(value: unknown): Shape {
     let element: Shape | undefined;
 
     for (const item of value) {
-      const itemShape = inferShape(item);
+      const itemShape = inferShape(item, report);
 
       element = element === undefined ? itemShape : mergeShapes(element, itemShape);
     }
@@ -88,7 +113,7 @@ export function inferShape(value: unknown): Shape {
     value as Record<string, unknown>,
   )) {
     properties.set(name, {
-      shape: inferShape(propertyValue),
+      shape: inferShape(propertyValue, report),
       present: 1,
       order: order++,
     });
@@ -98,10 +123,17 @@ export function inferShape(value: unknown): Shape {
 }
 
 /**
- * Widens two primitive types into one, or returns undefined when they are not
- * compatible. `integer` widens to `number` so `[1, 1.5]` is `number[]` rather
- * than `(number | number)[]`.
+ * Numeric types form a containment chain: every `integer` is a valid `long`,
+ * and every `long` is a valid `number`. Merging two of them yields the
+ * narrowest type that can hold both, so `[1, 5000000000]` is `long` and
+ * `[1, 2.5]` is `number`.
  */
+const NUMERIC_WIDTH: Readonly<Record<string, number>> = {
+  integer: 1,
+  long: 2,
+  number: 3,
+};
+
 function widenPrimitive(
   a: PrimitiveType,
   b: PrimitiveType,
@@ -118,11 +150,11 @@ function widenPrimitive(
     return a;
   }
 
-  if (
-    (a === "integer" && b === "number") ||
-    (a === "number" && b === "integer")
-  ) {
-    return "number";
+  const widthA = NUMERIC_WIDTH[a];
+  const widthB = NUMERIC_WIDTH[b];
+
+  if (widthA !== undefined && widthB !== undefined) {
+    return widthA > widthB ? a : b;
   }
 
   return undefined;

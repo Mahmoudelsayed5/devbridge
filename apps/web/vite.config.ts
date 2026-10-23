@@ -12,6 +12,10 @@ const packageSource = (name: string): string =>
  * engine hot-reload in the browser.
  */
 export default defineConfig({
+  // GitHub Pages serves a project site from /<repo>/, so asset URLs need that
+  // prefix. Left as "/" everywhere else, which keeps `pnpm dev` and any
+  // root-hosted deployment working unchanged.
+  base: process.env["PAGES_BASE"] ?? "/",
   plugins: [react()],
   resolve: {
     alias: {

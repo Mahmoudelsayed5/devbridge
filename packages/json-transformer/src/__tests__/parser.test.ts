@@ -352,3 +352,72 @@ describe("parseJson", () => {
     ]);
   });
 });
+
+describe("integer width", () => {
+  it("keeps a 32-bit value as integer", () => {
+    const { root } = parseJson(
+      JSON.stringify({ small: 42, max: 2147483647, min: -2147483648 }),
+    );
+
+    for (const name of ["small", "max", "min"]) {
+      expect(propertyOf(root, name), name).toEqual({
+        kind: "primitive",
+        type: "integer",
+      });
+    }
+  });
+
+  it("widens a value past the 32-bit range to long", () => {
+    const { root } = parseJson(
+      JSON.stringify({ over: 2147483648, under: -2147483649, id: 1234567890123 }),
+    );
+
+    for (const name of ["over", "under", "id"]) {
+      expect(propertyOf(root, name), name).toEqual({
+        kind: "primitive",
+        type: "long",
+      });
+    }
+  });
+
+  it("merges integer and long samples into long", () => {
+    const { root } = parseJson(JSON.stringify({ ids: [1, 5000000000] }));
+
+    expect(propertyOf(root, "ids")).toEqual({
+      kind: "array",
+      elementType: { kind: "primitive", type: "long" },
+    });
+  });
+
+  it("merges long and decimal samples into number", () => {
+    const { root } = parseJson(JSON.stringify({ v: [5000000000, 2.5] }));
+
+    expect(propertyOf(root, "v")).toEqual({
+      kind: "array",
+      elementType: { kind: "primitive", type: "number" },
+    });
+  });
+
+  it("keeps a long optional across array items rather than splitting it", () => {
+    const { context } = parseJson(
+      JSON.stringify({ rows: [{ id: 1 }, { id: 9999999999 }] }),
+    );
+
+    expect(
+      context.getType("RowsItem")?.properties[0]?.value,
+    ).toEqual({ kind: "primitive", type: "long" });
+  });
+
+  it("warns when a whole number has already lost precision", () => {
+    const { diagnostics } = parseJson('{"id": 9007199254740993}');
+
+    expect(diagnostics.map((d) => d.code)).toContain("json/unsafe-integer");
+    expect(diagnostics[0]?.severity).toBe("warning");
+  });
+
+  it("does not warn for a long that is still exact", () => {
+    const { diagnostics } = parseJson('{"id": 5000000000}');
+
+    expect(diagnostics.map((d) => d.code)).not.toContain("json/unsafe-integer");
+  });
+});

@@ -42,6 +42,8 @@ function primitiveToGo(type: PrimitiveType): string {
       return "string";
     case "integer":
       return "int";
+    case "long":
+      return "int64";
     case "number":
       return "float64";
     case "boolean":

@@ -61,6 +61,8 @@ function primitiveToPython(type: PrimitiveType): string {
     case "string":
       return "str";
     case "integer":
+    case "long":
+      // Python integers are arbitrary precision, so one type covers both.
       return "int";
     case "number":
       return "float";
