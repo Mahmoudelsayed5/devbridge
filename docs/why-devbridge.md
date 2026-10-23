@@ -5,6 +5,10 @@ place in someone's toolbox.
 
 ---
 
+**Try it: https://mahmoudelsayed5.github.io/devbridge/** — it runs entirely in
+your browser, so you can hand someone that link and they can test it with
+their own data without installing anything or uploading it anywhere.
+
 ## The one-sentence version
 
 > **DevBridge turns a developer artifact you already have into the one you
@@ -283,7 +287,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-215 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+231 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 
@@ -305,8 +309,11 @@ Credibility comes from the limits as much as the features.
   reads `CREATE TABLE`, `ALTER TABLE ... ADD CONSTRAINT` and
   `CREATE UNIQUE INDEX` from MySQL, PostgreSQL, SQL Server and SQLite dumps,
   and skips the rest.
-- **Integer width is not inferred.** JSON has no int32/int64 distinction, so
-  large integers currently map to `int`. This is a known open question.
+- **Integer precision has a hard ceiling.** Whole numbers are classified as
+  32-bit or 64-bit by magnitude, so a large id becomes `long` / `int64` rather
+  than silently overflowing an `int`. But JSON itself is parsed by
+  `JSON.parse`, which rounds anything past 2^53 — DevBridge warns when that
+  happens rather than pretending the value survived.
 - **No AI assistance.** Deliberately. Everything is deterministic.
 
 ---

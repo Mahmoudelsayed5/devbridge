@@ -1,5 +1,7 @@
 # DevBridge
 
+**▶ Try it: https://mahmoudelsayed5.github.io/devbridge/**
+
 A developer transformation layer: take an artifact you already have and produce
 the one you need next.
 
@@ -75,6 +77,9 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 
 ## Web app
 
+Live at **https://mahmoudelsayed5.github.io/devbridge/**, published from `main`
+by `.github/workflows/deploy-pages.yml`.
+
 ```bash
 pnpm dev:web      # http://localhost:5173
 pnpm build:web    # static bundle in apps/web/dist
@@ -115,7 +120,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-12 packages build clean, 215 tests pass.
+12 packages build clean, 231 tests pass.
 
 ### Verifying generated code actually compiles
 
