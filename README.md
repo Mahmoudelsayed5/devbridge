@@ -19,20 +19,24 @@ how to explain it to someone else.
 🗺️ **[Roadmap and build history](docs/roadmap.md)** — what exists, the
 decisions behind it, and what comes next.
 
-## Two IRs, not one
+## Three IRs, not one
 
-There are two intermediate representations, and the split is deliberate.
+There are three intermediate representations, and each split is deliberate.
 
 | IR | Models | Fed by | Feeds |
 | --- | --- | --- | --- |
 | **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions | `json` | `typescript`, `java`, `go`, `python`, `csharp` |
 | **relational** (`RelationalModel`) | tables, columns, keys and the relationships between them | `sql` | `mermaid`, `dbml` |
+| **api** (`ApiModel`) | endpoints: verbs, paths, parameters, bodies and responses | `openapi` | `postman` |
 
 The blueprint asks for one shared representation "whenever practical", and
-this is where that stops being practical: there is nowhere in `TypeNode` to
-record that a column references another table's primary key, and an ERD is
-mostly a drawing of exactly those references. A SQL schema forced into the
-type graph would lose the information its targets exist to show.
+each of these is a place where that stops being practical. There is nowhere
+in `TypeNode` to record that a column references another table's primary key,
+and an ERD is mostly a drawing of exactly those references. There is likewise
+no slot for `GET`, a path parameter or a `404`, and a Postman collection is a
+list of requests. An OpenAPI document's `components/schemas` *would* fit the
+type graph — but its `paths` are the part that matters here, and they would
+be the part thrown away.
 
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
@@ -54,14 +58,14 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 3 | JSON → Go, Python, C# | done |
 | 4 | Web MVP | done |
 | 5 | SQL family (Mermaid ERD / DBML) | done |
-| 6 | OpenAPI family | not started |
+| 6 | OpenAPI family (Postman) | done |
 | 7 | Chrome and VS Code extensions | not started |
 
 ## Packages
 
 | Package | Responsibility |
 | --- | --- |
-| `@devbridge/core` | Both IRs, `TransformationContext`, naming helpers, diagnostics, parser/generator contracts, registries |
+| `@devbridge/core` | All three IRs, `TransformationContext`, naming helpers, diagnostics, parser/generator contracts, registries |
 | `@devbridge/json-transformer` | JSON → IR (shape inference, merging, contextual naming) |
 | `@devbridge/typescript-transformer` | IR → TypeScript interfaces / type aliases |
 | `@devbridge/java-transformer` | IR → Java classes or records |
@@ -71,6 +75,8 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | `@devbridge/sql-transformer` | SQL → relational IR (tables, keys, foreign keys) |
 | `@devbridge/mermaid-transformer` | Relational IR → Mermaid `erDiagram` |
 | `@devbridge/dbml-transformer` | Relational IR → DBML |
+| `@devbridge/openapi-transformer` | OpenAPI 3 (YAML or JSON) → API IR |
+| `@devbridge/postman-transformer` | API IR → Postman collection v2.1 |
 | `@devbridge/engine` | Wires every parser and generator into one `transform()` call |
 | `@devbridge/cli` | `devbridge transform`, `devbridge validate`, `devbridge formats` |
 | `@devbridge/web` (`apps/web`) | The web MVP — paste, pick a target, copy or download |
@@ -85,9 +91,9 @@ pnpm dev:web      # http://localhost:5173
 pnpm build:web    # static bundle in apps/web/dist
 ```
 
-Pick a source format (JSON or SQL), paste or open a file, pick one of the
-targets that source can feed, adjust only the options that target actually
-reads, and copy or download the result. The target buttons change with the
+Pick a source format (JSON, SQL or OpenAPI), paste or open a file, pick one
+of the targets that source can feed, adjust only the options that target
+actually reads, and copy or download the result. The target buttons change with the
 source, so a cross-family pairing is not offerable in the first place.
 Targets that emit one file per type (Java, C#) show file tabs and a
 "Download all" button that builds a `.zip` in the browser.
@@ -120,7 +126,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-12 packages build clean, 231 tests pass.
+14 packages build clean, 268 tests pass.
 
 ### Verifying generated code actually compiles
 
@@ -157,6 +163,10 @@ cat payload.json | node packages/cli/dist/bin.js transform - --from json --to ty
 
 ```bash
 node packages/cli/dist/bin.js transform schema.sql --to mermaid
+```
+
+```bash
+node packages/cli/dist/bin.js transform openapi.yaml --to postman --out ./collections
 ```
 
 ```bash
@@ -264,6 +274,32 @@ rejects it.
   keys and multi-column uniques go in an `indexes` block. Defaults are
   classified: a SQL string becomes a DBML string, a number stays bare, and
   anything else is an expression in backticks.
+- **Postman** — one Collection v2.1 file. Requests are grouped into folders by
+  tag and written against a `{{baseUrl}}` variable taken from the first
+  declared server, so retargeting an environment is one edit. Path parameters
+  become Postman's `:name` form with their description and an example value;
+  optional query parameters are included but **disabled**, so a request sends
+  only what it must. Request bodies and saved response examples are
+  synthesised from the schema — `$ref`s resolved, the first `enum` member
+  preferred over a bare placeholder. A security scheme becomes collection-level
+  auth with `{{bearerToken}}`-style variables rather than blanks.
+
+## OpenAPI support
+
+Reads OpenAPI **3.x** in YAML or JSON (JSON is tried first, since its errors
+are better; YAML is a superset so one parser covers both). Swagger 2.0 is
+detected and named specifically rather than rejected vaguely.
+
+Handled: local `$ref` resolution with cycle protection, path-level parameters
+merged into each operation (with operation-level overrides winning, as the
+specification requires), `allOf`/`oneOf`/`anyOf` approximated by their first
+branch, security schemes, tags, and `deprecated`. Example synthesis prefers
+what the document states — `example`, then `default`, then the first `enum`
+member — and falls back to a placeholder typical of the declared type and
+format, so `format: uuid` yields a UUID rather than `"string"`.
+
+An OpenAPI document saved as `.json` resolves to the JSON parser by extension;
+pass `--from openapi` to override.
 
 ## SQL support
 

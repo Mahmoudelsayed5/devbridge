@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildGeneratorOptions, DEFAULT_OPTIONS, TARGETS } from "../options.js";
+import { SAMPLES } from "../sample.js";
 import {
   availableSources,
   availableTargets,
@@ -22,9 +23,21 @@ const SQL_SAMPLE = `
 `;
 
 /** An input each source format can actually parse. */
+const OPENAPI_SAMPLE = `
+openapi: 3.0.3
+info: { title: Demo, version: "1.0" }
+servers: [{ url: "https://api.example.com" }]
+paths:
+  /things:
+    get:
+      summary: List things
+      responses: { "200": { description: OK } }
+`;
+
 const INPUT_FOR: Readonly<Record<string, string>> = {
   json: SAMPLE,
   sql: SQL_SAMPLE,
+  openapi: OPENAPI_SAMPLE,
 };
 
 describe("runTransform", () => {
@@ -129,13 +142,15 @@ describe("runTransform", () => {
 });
 
 describe("source and target pairing", () => {
-  it("lists both sources with a file-picker accept list", () => {
+  it("lists every source with a file-picker accept list", () => {
     expect(availableSources().map((source) => source.id)).toEqual([
       "json",
       "sql",
+      "openapi",
     ]);
 
     expect(availableSources()[1]?.accept).toBe(".sql,.ddl");
+    expect(availableSources()[2]?.accept).toBe(".yaml,.yml,.openapi");
   });
 
   it("offers only compatible targets for each source", () => {
@@ -151,6 +166,26 @@ describe("source and target pairing", () => {
       "mermaid",
       "dbml",
     ]);
+
+    expect(targetsForSource("openapi").map((t) => t.id)).toEqual(["postman"]);
+  });
+
+  it("has a loadable sample for every source", () => {
+    for (const source of availableSources()) {
+      const sample = SAMPLES[source.id];
+
+      expect(sample, `no sample for ${source.id}`).toBeDefined();
+
+      const outcome = runTransform(
+        sample as string,
+        targetsForSource(source.id)[0]?.id ?? "",
+        {},
+        undefined,
+        source.id,
+      );
+
+      expect(outcome.status, `sample for ${source.id} failed`).toBe("ok");
+    }
   });
 });
 

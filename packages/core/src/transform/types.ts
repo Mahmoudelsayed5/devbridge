@@ -1,6 +1,7 @@
 import type { TransformationContext } from "../context/index.js";
 import type { Diagnostic } from "../diagnostics/index.js";
 import type { ObjectNode } from "../ir/index.js";
+import type { ApiModel } from "../api/index.js";
 import type { RelationalModel } from "../relational/index.js";
 
 /**
@@ -9,7 +10,7 @@ import type { RelationalModel } from "../relational/index.js";
  * which is what stops the engine from feeding a JSON type graph to an ERD
  * generator that needs tables and foreign keys.
  */
-export type IrKind = "type-graph" | "relational";
+export type IrKind = "type-graph" | "relational" | "api";
 
 /** A single emitted artifact. */
 export interface GeneratedFile {
@@ -36,6 +37,11 @@ export interface ParseResult {
 
 export interface RelationalParseResult {
   readonly model: RelationalModel;
+  readonly diagnostics: readonly Diagnostic[];
+}
+
+export interface ApiParseResult {
+  readonly model: ApiModel;
   readonly diagnostics: readonly Diagnostic[];
 }
 
@@ -84,7 +90,18 @@ export interface RelationalSourceParser extends FormatMeta {
   validate(input: string): readonly Diagnostic[];
 }
 
-export type AnySourceParser = SourceParser | RelationalSourceParser;
+/** Turns source text into the API IR. */
+export interface ApiSourceParser extends FormatMeta {
+  readonly irKind: "api";
+  readonly extensions: readonly string[];
+  parse(input: string, options?: ParseOptions): ApiParseResult;
+  validate(input: string): readonly Diagnostic[];
+}
+
+export type AnySourceParser =
+  | SourceParser
+  | RelationalSourceParser
+  | ApiSourceParser;
 
 /** Turns the type-graph IR into target source code. */
 export interface TargetGenerator extends FormatMeta {
@@ -108,4 +125,15 @@ export interface RelationalGenerator extends FormatMeta {
   generate(model: RelationalModel, options?: GeneratorOptions): GenerateResult;
 }
 
-export type AnyTargetGenerator = TargetGenerator | RelationalGenerator;
+/** Turns the API IR into a client collection or similar artifact. */
+export interface ApiGenerator extends FormatMeta {
+  readonly irKind: "api";
+  readonly extension: string;
+  readonly filePerType: boolean;
+  generate(model: ApiModel, options?: GeneratorOptions): GenerateResult;
+}
+
+export type AnyTargetGenerator =
+  | TargetGenerator
+  | RelationalGenerator
+  | ApiGenerator;

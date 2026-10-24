@@ -16,7 +16,9 @@ export type OptionKey =
   | "pointersForOptional"
   | "fieldStyle"
   | "simpleTypes"
-  | "attributes";
+  | "attributes"
+  | "folders"
+  | "examples";
 
 export interface OptionState {
   rootName: string;
@@ -34,6 +36,8 @@ export interface OptionState {
   fieldStyle: string;
   simpleTypes: boolean;
   attributes: boolean;
+  folders: boolean;
+  examples: boolean;
 }
 
 export interface TargetDescriptor {
@@ -96,6 +100,12 @@ export const TARGETS: Readonly<Record<string, TargetDescriptor>> = {
     packageLabel: "Project",
     packagePlaceholder: "shop",
   },
+  postman: {
+    label: "Postman collection",
+    options: ["packageName", "folders", "examples"],
+    packageLabel: "Collection name",
+    packagePlaceholder: "Defaults to the API title",
+  },
 };
 
 /** Defaults mirror each generator's own defaults, so the UI tells the truth. */
@@ -113,6 +123,8 @@ export const DEFAULT_OPTIONS: OptionState = {
   fieldStyle: "preserve",
   simpleTypes: false,
   attributes: true,
+  folders: true,
+  examples: true,
 };
 
 /** Java's generator defaults to no Jackson annotations; everything else to on. */
@@ -199,6 +211,14 @@ export function buildGeneratorOptions(
 
   if (allowed.has("attributes")) {
     options["attributes"] = state.attributes;
+  }
+
+  if (allowed.has("folders")) {
+    options["folders"] = state.folders;
+  }
+
+  if (allowed.has("examples")) {
+    options["examples"] = state.examples;
   }
 
   return options as GeneratorOptions;

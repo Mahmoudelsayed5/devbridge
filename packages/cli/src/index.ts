@@ -27,8 +27,9 @@ Usage:
   devbridge --help
 
 Sources and the targets they feed:
-  json  ->  typescript, java, go, python, csharp
-  sql   ->  mermaid, dbml
+  json     ->  typescript, java, go, python, csharp
+  sql      ->  mermaid, dbml
+  openapi  ->  postman
 
 Options:
   --to <target>        Target format. Required for transform.
