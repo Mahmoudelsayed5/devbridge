@@ -78,20 +78,18 @@ generates from that. You need **N + M** pieces, and a new target is **one**
 new piece.
 
 ```
-         ┌── TypeScript
-JSON ──┐ ├── Java
-       ├─► [ IR ] ──┼── Go
-SQL ───┘ ├── Python
-         ├── C#
-         ├── Mermaid ERD
-         └── DBML
+JSON ─────┐                 ┌── TypeScript, Java, Go, Python, C#
+          │                 │
+SQL ──────┼──►  [  IR  ] ───┼── Mermaid ERD, DBML
+          │                 │
+OpenAPI ──┘                 └── Postman
 ```
 
 | | pair-by-pair | shared IR |
 | --- | --- | --- |
-| today (2 sources, 7 targets) | 14 converters | 9 pieces |
+| today (3 sources, 8 targets) | 24 converters | 11 pieces |
 | add 1 target | +2 | **+1** |
-| 5 sources × 10 targets | 50 | **15** |
+| 5 sources × 12 targets | 60 | **17** |
 
 > **Analogy — the travel adapter.** You could carry a separate cable for every
 > country-pair you travel between. Or you carry one universal adapter: every
@@ -167,9 +165,10 @@ needed to disambiguate.
 
 ### 4. One engine, every surface
 
-The same engine runs in the CLI, the web app, as a library, and — next — as an
-editor extension. A transformation behaves identically in all of them, because
-it is literally the same code.
+The same engine runs in the CLI, the web app, the VS Code extension, and as a
+library. A transformation behaves identically in all of them, because it is
+literally the same code — the extension bundles the engine rather than calling
+a service, so it works on a plane.
 
 ---
 
@@ -294,7 +293,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-268 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+293 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 
