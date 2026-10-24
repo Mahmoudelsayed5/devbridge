@@ -37,6 +37,12 @@
     },
     {
       "path": "../dbml-transformer"
+    },
+    {
+      "path": "../openapi-transformer"
+    },
+    {
+      "path": "../postman-transformer"
     }
   ]
 }

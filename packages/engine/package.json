@@ -29,6 +29,8 @@
     "@devbridge/java-transformer": "workspace:*",
     "@devbridge/json-transformer": "workspace:*",
     "@devbridge/mermaid-transformer": "workspace:*",
+    "@devbridge/openapi-transformer": "workspace:*",
+    "@devbridge/postman-transformer": "workspace:*",
     "@devbridge/python-transformer": "workspace:*",
     "@devbridge/sql-transformer": "workspace:*",
     "@devbridge/typescript-transformer": "workspace:*"

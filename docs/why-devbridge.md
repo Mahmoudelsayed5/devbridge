@@ -16,6 +16,7 @@ their own data without installing anything or uploading it anywhere.
 
 Paste a JSON response, get typed models in TypeScript, Java, Go, Python or C#.
 Paste a SQL schema, get an entity-relationship diagram or a DBML document.
+Paste an OpenAPI spec, get a ready-to-import Postman collection.
 
 ---
 
@@ -201,6 +202,12 @@ The same event payload is consumed by a Go service, a Python worker and a C#
 client. Generate all three from one sample and the field names agree, because
 one naming engine produced all of them.
 
+### For anyone handed an OpenAPI spec
+A team publishes a spec but no Postman collection, so everyone hand-builds
+requests and gets the auth header subtly wrong. Paste the spec, get a
+collection with every endpoint, bodies prefilled from the schemas, path
+parameters wired up, and auth configured once at the collection level.
+
 ### For documenting or migrating a legacy database
 `SQL → DBML` gives you a document you can keep in version control and open in
 dbdiagram.io, rather than a diagram trapped in someone's licensed desktop tool.
@@ -287,7 +294,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-231 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+268 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 
@@ -301,7 +308,10 @@ backend. There is nothing to host, no account, and no service to depend on.
 
 Credibility comes from the limits as much as the features.
 
-- **Two source formats today**: JSON and SQL. OpenAPI is planned, not built.
+- **Three source formats today**: JSON, SQL and OpenAPI 3. Swagger 2.0 is
+  detected and named, not converted.
+- **OpenAPI feeds Postman only.** The schemas in an OpenAPI document could
+  also produce language models, but that is not wired up yet.
 - **Inference is sample-based.** DevBridge knows what your samples show. If a
   field is absent from every sample, it cannot exist in the output. Give it
   representative data, not one lucky record.

@@ -14,6 +14,8 @@ const CHECKBOX_LABELS: Partial<Record<OptionKey, string>> = {
   exportTypes: "export declarations",
   pointersForOptional: "Pointers for optional fields",
   attributes: "Show columns",
+  folders: "Group into folders by tag",
+  examples: "Save response examples",
   simpleTypes: "Drop type arguments",
 };
 

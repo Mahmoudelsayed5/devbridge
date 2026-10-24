@@ -27,14 +27,35 @@ CREATE TABLE orders (
 
 const TYPE_GRAPH_TARGETS = ["typescript", "java", "go", "python", "csharp"];
 const RELATIONAL_TARGETS = ["mermaid", "dbml"];
+const API_TARGETS = ["postman"];
+
+const OPENAPI_SAMPLE = `
+openapi: 3.0.3
+info: { title: Petstore, version: "1.0" }
+servers: [{ url: "https://api.example.com" }]
+paths:
+  /pets:
+    get:
+      summary: List pets
+      responses: { "200": { description: OK } }
+  /pets/{id}:
+    delete:
+      parameters: [{ name: id, in: path, schema: { type: integer } }]
+      responses: { "204": { description: Gone } }
+`;
 
 describe("registries", () => {
   it("lists both source families", () => {
-    expect(listSources().map((format) => format.id)).toEqual(["json", "sql"]);
+    expect(listSources().map((format) => format.id)).toEqual([
+      "json",
+      "sql",
+      "openapi",
+    ]);
 
     expect(listSources().map((format) => format.irKind)).toEqual([
       "type-graph",
       "relational",
+      "api",
     ]);
   });
 
@@ -42,6 +63,7 @@ describe("registries", () => {
     expect(listTargets().map((format) => format.id)).toEqual([
       ...TYPE_GRAPH_TARGETS,
       ...RELATIONAL_TARGETS,
+      ...API_TARGETS,
     ]);
   });
 
@@ -49,7 +71,14 @@ describe("registries", () => {
     expect(sourceForFile("schema.JSON")?.id).toBe("json");
     expect(sourceForFile("schema.sql")?.id).toBe("sql");
     expect(sourceForFile("schema.ddl")?.id).toBe("sql");
-    expect(sourceForFile("schema.yaml")).toBeUndefined();
+    expect(sourceForFile("api.yaml")?.id).toBe("openapi");
+    expect(sourceForFile("api.yml")?.id).toBe("openapi");
+
+    // An OpenAPI document written as .json resolves to the JSON parser, since
+    // the extension alone cannot distinguish them. Pass --from to override.
+    expect(sourceForFile("openapi.json")?.id).toBe("json");
+
+    expect(sourceForFile("schema.toml")).toBeUndefined();
     expect(sourceForFile("schema")).toBeUndefined();
   });
 });
@@ -58,6 +87,7 @@ describe("targetsFor", () => {
   it("offers only targets that can read the source's IR", () => {
     expect(targetsFor("json").map((t) => t.id)).toEqual(TYPE_GRAPH_TARGETS);
     expect(targetsFor("sql").map((t) => t.id)).toEqual(RELATIONAL_TARGETS);
+    expect(targetsFor("openapi").map((t) => t.id)).toEqual(API_TARGETS);
     expect(targetsFor("nope")).toEqual([]);
   });
 });
@@ -89,6 +119,21 @@ describe("transform", () => {
       expect(result.files.length).toBeGreaterThan(0);
       expect(result.preview).toContain("users");
     }
+  });
+
+  it("turns an OpenAPI document into a Postman collection", () => {
+    const result = transform({
+      input: OPENAPI_SAMPLE,
+      source: "openapi",
+      target: "postman",
+    });
+
+    expect(result.irKind).toBe("api");
+    expect(result.names).toEqual(["GET /pets", "DELETE /pets/{id}"]);
+    expect(result.files[0]?.path).toBe("Petstore.postman_collection.json");
+
+    // The collection must be valid JSON a client can import.
+    expect(() => JSON.parse(result.preview)).not.toThrow();
   });
 
   it("exposes the IR it produced, discriminated by family", () => {

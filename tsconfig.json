@@ -32,6 +32,12 @@
       "path": "packages/dbml-transformer"
     },
     {
+      "path": "packages/openapi-transformer"
+    },
+    {
+      "path": "packages/postman-transformer"
+    },
+    {
       "path": "packages/engine"
     },
     {

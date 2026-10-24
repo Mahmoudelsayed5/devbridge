@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after the Pages deployment landed (`25109ef`).
+Last updated after phase 6 landed.
 
 ---
 
@@ -11,23 +11,25 @@ Last updated after the Pages deployment landed (`25109ef`).
 
 | | |
 | --- | --- |
-| Phases complete | 0–5 of 9 |
-| Packages | 12 libraries + 1 web app |
-| Source formats | 2 (JSON, SQL) |
-| Target formats | 7 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML) |
-| Tests | 231, all passing |
+| Phases complete | 0–6 of 9 |
+| Packages | 14 libraries + 1 web app |
+| Source formats | 3 (JSON, SQL, OpenAPI) |
+| Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
+| Tests | 268, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | build + test on Ubuntu and Windows, plus generated-output compilation |
 
 ```
-          ┌── TypeScript ─┐
-JSON ──┐  ├── Java ───────┤
-       ├──┼── Go ─────────┤ type-graph IR
-       │  ├── Python ─────┤
-       │  └── C# ─────────┘
-       │
-SQL ───┴──┬── Mermaid ERD ─┐ relational IR
-          └── DBML ────────┘
+             ┌── TypeScript ─┐
+JSON ─────┐  ├── Java ───────┤
+          ├──┼── Go ─────────┤  type-graph IR
+          │  ├── Python ─────┤
+          │  └── C# ─────────┘
+          │
+SQL ──────┴──┬── Mermaid ERD ┐  relational IR
+             └── DBML ───────┘
+
+OpenAPI ─────── Postman ─────── api IR
 ```
 
 ---
@@ -100,6 +102,27 @@ architectural bet.
   from MySQL, PostgreSQL, SQL Server and SQLite dumps
 - **`mermaid-transformer`** — `erDiagram` output with crow's-foot cardinality
 - **`dbml-transformer`** — DBML with inline and composite keys, and refs
+
+### Phase 6 — OpenAPI family
+
+OpenAPI 3 → Postman collection, and the second confirmation that adding an IR
+is cheap once the pattern exists.
+
+- **`openapi-transformer`** — reads YAML or JSON, resolves local `$ref`s with
+  cycle protection, merges path-level parameters into each operation, and
+  **synthesises example payloads** from schemas so every generated request
+  arrives prefilled rather than blank
+- **`postman-transformer`** — Collection v2.1: folders by tag, a `{{baseUrl}}`
+  variable, `:name` path parameters, optional query parameters included but
+  disabled, and security schemes mapped onto collection-level auth
+
+The question settled here was whether OpenAPI needed its own IR. Its
+`components/schemas` would have fitted the type graph — but its `paths` are
+the part a Postman collection is made of, and there is no slot in `TypeNode`
+for a verb, a path parameter or a `404`. A third IR it was.
+
+Cost of the third IR: the `ApiModel` file, the two packages, and four lines of
+engine wiring. Nothing in the other six generators changed.
 
 ---
 
@@ -174,7 +197,7 @@ state.
 | --- | --- | --- |
 | **ESLint config** | `lint` scripts were removed rather than left broken | small |
 | **Duplicate JSON keys** | `{"a":1,"a":2}` silently keeps the last; detecting it needs a hand-written tokenizer | medium |
-| **A licence** | The repository is public with no `LICENSE` file, which legally means all rights reserved — nobody may use it | small, needs a decision |
+| **OpenAPI → language models** | The `components/schemas` half of an OpenAPI document fits the type graph, so the same file could also feed the five language generators. Needs a parser that can offer two IRs. | medium |
 
 **Done since this list was written:**
 
@@ -185,16 +208,8 @@ state.
   <https://mahmoudelsayed5.github.io/devbridge/>, published from `main` by
   `.github/workflows/deploy-pages.yml`. The repository was made public so that
   Pages would work on the free plan.
-
-### Phase 6 — OpenAPI family
-
-OpenAPI → Postman collections and related artifacts.
-
-**Open question to settle first:** does OpenAPI fit the existing type-graph IR,
-or does it need a third (request/response/endpoint) model? An OpenAPI *schema*
-object maps cleanly onto the type graph, but *paths, verbs, parameters and
-responses* do not. Current expectation: a third IR, reusing the same pattern —
-which phase 5 has now proven is cheap to add.
+- ~~A licence~~ — MIT.
+- ~~Phase 6~~ — see above.
 
 ### Phase 7 — Integrations
 

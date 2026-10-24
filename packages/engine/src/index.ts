@@ -6,6 +6,7 @@ import type {
   GeneratorOptions,
   IrKind,
   ObjectNode,
+  ApiModel,
   ParseOptions,
   RelationalModel,
   TransformationContext,
@@ -22,6 +23,8 @@ import { goGenerator } from "@devbridge/go-transformer";
 import { javaGenerator } from "@devbridge/java-transformer";
 import { jsonParser } from "@devbridge/json-transformer";
 import { mermaidGenerator } from "@devbridge/mermaid-transformer";
+import { openApiParser } from "@devbridge/openapi-transformer";
+import { postmanGenerator } from "@devbridge/postman-transformer";
 import { pythonGenerator } from "@devbridge/python-transformer";
 import { sqlParser } from "@devbridge/sql-transformer";
 import { typeScriptGenerator } from "@devbridge/typescript-transformer";
@@ -35,6 +38,7 @@ export const generators = new GeneratorRegistry();
 
 parsers.register(jsonParser);
 parsers.register(sqlParser);
+parsers.register(openApiParser);
 
 generators.register(typeScriptGenerator);
 generators.register(javaGenerator);
@@ -43,6 +47,7 @@ generators.register(pythonGenerator);
 generators.register(cSharpGenerator);
 generators.register(mermaidGenerator);
 generators.register(dbmlGenerator);
+generators.register(postmanGenerator);
 
 export interface TransformRequest {
   /** Source artifact text. */
@@ -58,7 +63,8 @@ export interface TransformRequest {
 /** The IR a transformation produced, discriminated by family. */
 export type TransformIr =
   | { readonly kind: "type-graph"; readonly root: ObjectNode; readonly context: TransformationContext }
-  | { readonly kind: "relational"; readonly model: RelationalModel };
+  | { readonly kind: "relational"; readonly model: RelationalModel }
+  | { readonly kind: "api"; readonly model: ApiModel };
 
 export interface TransformResult {
   readonly source: string;
@@ -68,7 +74,10 @@ export interface TransformResult {
   readonly files: readonly GeneratedFile[];
   readonly preview: string;
   readonly diagnostics: readonly Diagnostic[];
-  /** Type names for a type graph, table names for a relational model. */
+  /**
+   * Type names for a type graph, table names for a relational model,
+   * `METHOD /path` for an API model.
+   */
   readonly names: readonly string[];
 }
 
@@ -76,6 +85,7 @@ export interface TransformResult {
 const FAMILY_LABEL: Readonly<Record<IrKind, string>> = {
   "type-graph": "data shapes",
   relational: "database schemas",
+  api: "HTTP endpoints",
 };
 
 /**
@@ -127,6 +137,24 @@ export function transform(request: TransformRequest): TransformResult {
   const generator = generators.require(request.target);
 
   assertCompatible(parser, generator);
+
+  if (parser.irKind === "api" && generator.irKind === "api") {
+    const parsed = parser.parse(request.input, request.parseOptions);
+    const generated = generator.generate(parsed.model, request.generatorOptions);
+
+    return {
+      source: parser.id,
+      target: generator.id,
+      irKind: "api",
+      ir: { kind: "api", model: parsed.model },
+      files: generated.files,
+      preview: generated.preview,
+      diagnostics: [...parsed.diagnostics, ...(generated.diagnostics ?? [])],
+      names: parsed.model.operations.map(
+        (operation) => `${operation.method} ${operation.path}`,
+      ),
+    };
+  }
 
   if (parser.irKind === "relational" && generator.irKind === "relational") {
     const parsed = parser.parse(request.input, request.parseOptions);

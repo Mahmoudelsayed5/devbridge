@@ -74,7 +74,98 @@ ALTER TABLE order_items
   ADD CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders (id);
 `;
 
+/**
+ * A path parameter, a required and an optional query parameter, a `$ref`ed
+ * request body, bearer security, two tags so folders appear, and a
+ * deprecated operation.
+ */
+export const SAMPLE_OPENAPI = `openapi: 3.0.3
+info:
+  title: Petstore
+  version: 1.0.0
+  description: A small API to demonstrate the transformation.
+servers:
+  - url: https://api.example.com/v1
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Pet:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        status: { type: string, enum: [available, pending, sold] }
+        tags: { type: array, items: { type: string } }
+security:
+  - bearerAuth: []
+paths:
+  /pets:
+    get:
+      summary: List pets
+      tags: [pets]
+      parameters:
+        - name: status
+          in: query
+          required: true
+          description: Filter by status
+          schema: { type: string, enum: [available, sold] }
+        - name: limit
+          in: query
+          description: Maximum number to return
+          schema: { type: integer }
+      responses:
+        "200":
+          description: A list of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pet' }
+    post:
+      summary: Add a pet
+      tags: [pets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Pet' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+  /pets/{petId}:
+    get:
+      summary: Find a pet by id
+      tags: [pets]
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The pet to fetch
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+        "404": { description: Not found }
+  /admin/stats:
+    get:
+      summary: Legacy statistics
+      tags: [admin]
+      deprecated: true
+      responses:
+        "200": { description: OK }
+`;
+
 export const SAMPLES: Readonly<Record<string, string>> = {
   json: SAMPLE_JSON,
   sql: SAMPLE_SQL,
+  openapi: SAMPLE_OPENAPI,
 };

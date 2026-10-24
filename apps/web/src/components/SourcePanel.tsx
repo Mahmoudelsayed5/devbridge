@@ -21,6 +21,7 @@ interface SourcePanelProps {
 const PLACEHOLDERS: Readonly<Record<string, string>> = {
   json: 'Paste JSON here, for example {"user": {"id": 1}}',
   sql: "Paste CREATE TABLE statements here",
+  openapi: "Paste an OpenAPI 3 document here, in YAML or JSON",
 };
 
 export function SourcePanel({
