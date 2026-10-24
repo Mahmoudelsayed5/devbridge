@@ -1,3 +1,12 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# pnpm blocks dependency build scripts by default and fails the install until
+# each one is ruled on, so esbuild is allowed explicitly here rather than
+# through an interactive `pnpm approve-builds` that CI cannot run.
+# (This pnpm names the setting `allowBuilds` and expects a mapping; older
+# releases used an `onlyBuiltDependencies` list.)
+allowBuilds:
+  esbuild: true
+  "@vscode/vsce-sign": true

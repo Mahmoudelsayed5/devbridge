@@ -59,7 +59,8 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 4 | Web MVP | done |
 | 5 | SQL family (Mermaid ERD / DBML) | done |
 | 6 | OpenAPI family (Postman) | done |
-| 7 | Chrome and VS Code extensions | not started |
+| 7 | VS Code extension | done |
+| 7b | Chrome extension | see docs/roadmap.md — recommended against for now |
 
 ## Packages
 
@@ -80,6 +81,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | `@devbridge/engine` | Wires every parser and generator into one `transform()` call |
 | `@devbridge/cli` | `devbridge transform`, `devbridge validate`, `devbridge formats` |
 | `@devbridge/web` (`apps/web`) | The web MVP — paste, pick a target, copy or download |
+| `devbridge-vscode` (`apps/vscode`) | VS Code extension: transform the selection without leaving the editor |
 
 ## Web app
 
@@ -110,6 +112,32 @@ app needs `moduleResolution: "Bundler"`, JSX and DOM libs, where the libraries
 are built as composite `NodeNext` projects. Vite aliases the workspace packages
 to their TypeScript source, so `pnpm dev:web` needs no prior `tsc -b`.
 
+## VS Code extension
+
+```bash
+pnpm package:vscode     # apps/vscode/devbridge.vsix
+code --install-extension apps/vscode/devbridge.vsix
+```
+
+Two commands: **DevBridge: Transform…** works on the selection, or the whole
+file when nothing is selected, and opens the result in a new editor under the
+right language; **DevBridge: Validate this document** reports the first
+problem with its line and column.
+
+The source format comes from the editor's language mode, falling back to the
+file extension — which matters for a `.ddl` file VS Code calls plain text — and
+you are asked only when neither is conclusive.
+
+`src/extension.ts` is deliberately thin glue over `src/core.ts`, because
+anything importing `vscode` cannot be unit tested: the decisions live in
+`core.ts`, which is covered. A second suite loads the real bundled `.cjs` with
+a **stubbed `vscode` module** and asserts it loads, exports `activate` /
+`deactivate`, and registers exactly the commands the manifest declares — the
+three things that most often break, caught without launching an editor.
+
+esbuild bundles the engine in and leaves `vscode` external, so the packaged
+extension has no runtime dependencies.
+
 ## Getting started
 
 Requires Node.js 24 LTS or newer. pnpm is not installed globally — corepack
@@ -126,7 +154,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 268 tests pass.
+14 packages build clean, 293 tests pass.
 
 ### Verifying generated code actually compiles
 

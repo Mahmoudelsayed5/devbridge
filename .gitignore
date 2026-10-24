@@ -13,3 +13,6 @@ coverage/
 
 .vscode/*.local
 *.tsbuildinfo
+
+apps/vscode/dist/
+*.vsix

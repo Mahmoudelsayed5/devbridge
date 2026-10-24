@@ -45,8 +45,25 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Bundled before the tests so the extension's bundle smoke test — which
+      # loads the real .cjs with a stubbed `vscode` module — actually runs
+      # rather than skipping.
+      - name: Build VS Code extension
+        run: pnpm build:vscode
+
       - name: Test
         run: pnpm test
+
+      - name: Package VS Code extension
+        run: pnpm package:vscode
+
+      - name: Upload VSIX
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: devbridge-vsix
+          path: apps/vscode/devbridge.vsix
+          if-no-files-found: error
 
   verify-generated:
     name: compile generated output

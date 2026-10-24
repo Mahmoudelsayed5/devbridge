@@ -15,7 +15,9 @@
     "verify:generated:strict": "node scripts/verify-generated.mjs --strict",
     "devbridge": "node packages/cli/dist/bin.js",
     "build:web": "pnpm --filter @devbridge/web build",
-    "dev:web": "pnpm --filter @devbridge/web dev"
+    "dev:web": "pnpm --filter @devbridge/web dev",
+    "build:vscode": "pnpm --filter devbridge-vscode build",
+    "package:vscode": "pnpm --filter devbridge-vscode package"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

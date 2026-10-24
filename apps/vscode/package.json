@@ -1,0 +1,63 @@
+{
+  "name": "devbridge-vscode",
+  "displayName": "DevBridge",
+  "description": "Turn a JSON, SQL or OpenAPI document into typed models, diagrams or a Postman collection — entirely offline.",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "publisher": "devbridge",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "json",
+    "sql",
+    "openapi",
+    "codegen",
+    "typescript"
+  ],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "devbridge.transform",
+        "title": "Transform…",
+        "category": "DevBridge"
+      },
+      {
+        "command": "devbridge.validate",
+        "title": "Validate this document",
+        "category": "DevBridge"
+      }
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "bundle": "node scripts/bundle.mjs",
+    "build": "pnpm typecheck && pnpm bundle",
+    "package": "pnpm build && vsce package --no-dependencies --out devbridge.vsix"
+  },
+  "dependencies": {
+    "@devbridge/core": "workspace:*",
+    "@devbridge/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "vitest": "^5.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mahmoudelsayed5/devbridge.git",
+    "directory": "apps/vscode"
+  },
+  "homepage": "https://mahmoudelsayed5.github.io/devbridge/",
+  "bugs": {
+    "url": "https://github.com/Mahmoudelsayed5/devbridge/issues"
+  }
+}

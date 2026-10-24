@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after phase 6 landed.
+Last updated after phase 7 landed.
 
 ---
 
@@ -11,11 +11,11 @@ Last updated after phase 6 landed.
 
 | | |
 | --- | --- |
-| Phases complete | 0–6 of 9 |
-| Packages | 14 libraries + 1 web app |
+| Phases complete | 0–7 of 9 (Chrome extension deliberately skipped) |
+| Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 268, all passing |
+| Tests | 293, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | build + test on Ubuntu and Windows, plus generated-output compilation |
 
@@ -124,6 +124,29 @@ for a verb, a path parameter or a `404`. A third IR it was.
 Cost of the third IR: the `ApiModel` file, the two packages, and four lines of
 engine wiring. Nothing in the other six generators changed.
 
+### Phase 7 — VS Code extension
+
+The engine was already a plain, browser-safe library, so this was packaging
+and UX rather than new capability.
+
+- `src/core.ts` holds every decision — source inference, target filtering,
+  result shaping — and imports nothing from `vscode`
+- `src/extension.ts` is thin glue that does, and therefore holds nothing worth
+  testing
+- esbuild bundles the engine into one CommonJS file with `vscode` external, so
+  the packaged extension has no runtime dependencies
+- `pnpm package:vscode` produces an installable `devbridge.vsix` (56 KB), which
+  CI uploads as an artifact on every run
+
+**The testing approach is the part worth keeping.** An extension can only
+really be exercised inside an editor, which CI cannot do cheaply — but most of
+what goes wrong is cheaper than that. A second suite loads the real bundled
+`.cjs` with a **stubbed `vscode` module** and asserts three things: that it
+loads at all, that it exports `activate` and `deactivate`, and that it
+registers *exactly* the commands the manifest declares. A manifest promising a
+command the code never registers is the classic extension bug, and it is now
+impossible to merge.
+
 ---
 
 ## Decisions that shaped the design
@@ -211,14 +234,32 @@ state.
 - ~~A licence~~ — MIT.
 - ~~Phase 6~~ — see above.
 
-### Phase 7 — Integrations
+### Phase 7 — Integrations *(VS Code done; Chrome deliberately not)*
 
-VS Code extension and Chrome extension. The engine is already browser-safe and
-surface-independent, so this is mostly packaging and UX. Likely order:
+The VS Code extension is built and packages to an installable `devbridge.vsix`
+that CI uploads on every run. See the README for what it does.
 
-1. **VS Code** — highest value: transform the selection, or right-click a
-   `.json`/`.sql` file. The engine is already a plain library.
-2. **Chrome** — transform a JSON response straight from the network tab.
+**Chrome extension: recommended against, for now.** The blueprint lists it,
+but the case has weakened since it was written:
+
+- The obvious version — paste JSON in a browser, get types — is **what the
+  live web app already does**, and the web app needs no install and no store
+  review.
+- The version that would actually add something — reading a response straight
+  out of the DevTools network panel — is a `chrome.devtools.network` panel
+  under Manifest V3. That is real, fiddly work against an API that has
+  already churned once, for a workflow most developers do a few times a month.
+- Anyone else installing it needs a Chrome Web Store listing: a developer
+  account, a review cycle, and a privacy declaration for an extension whose
+  entire pitch is that it touches no data.
+
+Worth revisiting if someone actually asks for it. Until then it is cost
+without evidence, which is the thing the blueprint's scope rules exist to
+prevent.
+
+**A better next integration**, if one is wanted: a JetBrains plugin, which
+reaches the IntelliJ/WebStorm/DataGrip audience the SQL family is aimed at and
+has no equivalent already shipping.
 
 ### Phase 8–9 — Later
 
