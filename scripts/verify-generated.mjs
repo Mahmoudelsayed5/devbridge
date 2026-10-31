@@ -22,8 +22,20 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "packages", "cli", "dist", "bin.js");
-const fixture = join(root, "fixtures", "kitchen-sink.json");
 const strict = process.argv.includes("--strict");
+
+/**
+ * Each source that can produce language models, with a fixture exercising it.
+ *
+ * Both are run through every target, because the two readings reach the
+ * generators with different material. The OpenAPI one carries what inference
+ * from JSON samples cannot: a declared integer width, a declared required
+ * list, one type shared by two references, and recursion.
+ */
+const fixtures = [
+  { name: "json", path: join(root, "fixtures", "kitchen-sink.json") },
+  { name: "openapi", path: join(root, "fixtures", "kitchen-sink.openapi.yaml") },
+];
 
 // Every tool invoked here is a real executable, which CreateProcess and execvp
 // both resolve from PATH, so no shell is needed (and none is used: passing
@@ -39,7 +51,7 @@ function available(command, args = ["--version"]) {
   return result.error === undefined && result.status === 0;
 }
 
-function generate(target, outDir, extra = []) {
+function generate(fixture, target, outDir, extra = []) {
   const result = run(
     process.execPath,
     [cli, "transform", fixture, "--to", target, "--out", outDir, "--quiet", ...extra],
@@ -189,46 +201,48 @@ const checks = [
   },
 ];
 
+let passed = 0;
 let failed = 0;
 let skipped = 0;
 
 for (const check of checks) {
   if (!check.probe()) {
-    const message = `SKIP ${check.target}: ${check.tool} not found`;
-
+    // Counted once per fixture so the totals still add up to the work planned.
     if (strict) {
       console.error(`FAIL ${check.target}: ${check.tool} not found (--strict)`);
-      failed += 1;
+      failed += fixtures.length;
     } else {
-      console.log(message);
-      skipped += 1;
+      console.log(`SKIP ${check.target}: ${check.tool} not found`);
+      skipped += fixtures.length;
     }
 
     continue;
   }
 
-  const dir = workDir(check.target);
+  for (const fixture of fixtures) {
+    const label = `${check.target} (${fixture.name})`;
+    const dir = workDir(`${check.target}-${fixture.name}`);
 
-  try {
-    generate(check.target, dir);
+    try {
+      generate(fixture.path, check.target, dir);
 
-    const result = check.verify(dir);
+      const result = check.verify(dir);
 
-    if (result.status === 0) {
-      console.log(`PASS ${check.target}`);
-    } else {
+      if (result.status === 0) {
+        passed += 1;
+        console.log(`PASS ${label}`);
+      } else {
+        failed += 1;
+        console.error(`FAIL ${label} (exit ${result.status})`);
+        console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`.trim());
+      }
+    } catch (error) {
       failed += 1;
-      console.error(`FAIL ${check.target} (exit ${result.status})`);
-      console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`.trim());
+      console.error(`FAIL ${label}: ${error.message}`);
     }
-  } catch (error) {
-    failed += 1;
-    console.error(`FAIL ${check.target}: ${error.message}`);
   }
 }
 
-console.log(
-  `\n${checks.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`,
-);
+console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);
 
 process.exitCode = failed > 0 ? 1 : 0;

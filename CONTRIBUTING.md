@@ -57,6 +57,12 @@ Java, Go, Python, C#, or TypeScript. If you add a target language, add it to
 `scripts/verify-generated.mjs` too; a generator with no compiler behind it is
 the one place this project will accumulate silent breakage.
 
+It runs two fixtures through every target, and the second one is there for a
+reason: `fixtures/kitchen-sink.openapi.yaml` contains a reference cycle, which
+no JSON sample can express, and that case was emitting uncompilable Go until
+a real `go vet` was pointed at it. If you touch a type-graph generator, run
+both.
+
 **Nothing shipped may touch the network or spawn a process.** This is a
 promise the README and [SECURITY.md](SECURITY.md) both make to users pasting
 production schemas into the tool, and it is enforced by `local-first.test.ts`
@@ -95,6 +101,13 @@ The README has step-by-step lists for both — see "Adding a target" and the
 section on the three IRs. The short version: a generator declares an `irKind`,
 the engine refuses to pair families that do not match, and a new target needs a
 descriptor in `apps/web/src/lib/options.ts` or a test will fail on purpose.
+
+A parser whose source describes genuinely two kinds of thing can declare
+`alsoProduces: "type-graph"` with a `parseTypeGraph` method, and the engine
+picks the reading from the chosen target. OpenAPI is the only source that
+does this, and the bar for a second one is high: it should be true of the
+*format*, not a convenience. Note that such a parser's `validate` runs before
+any target is chosen, so it must only reject what every reading would.
 
 ## Pull requests
 

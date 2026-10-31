@@ -1,0 +1,141 @@
+openapi: 3.0.3
+info:
+  title: Kitchen Sink
+  version: 1.0.0
+  description: >
+    Exercises every schema construct the type-graph reading supports, so the
+    generated models are compiled by each language's real toolchain. The JSON
+    kitchen sink cannot reach several of these: a declared integer width, a
+    declared required list, a shared type reached by two references, and a
+    recursive type.
+
+paths:
+  /things:
+    get:
+      summary: List things
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Order" }
+
+components:
+  schemas:
+    # Scalars, including the width OpenAPI states and JSON cannot.
+    Account:
+      type: object
+      required: [id, email]
+      properties:
+        id: { type: integer, format: int64 }
+        revision: { type: integer, format: int32 }
+        plain_count: { type: integer }
+        balance: { type: number, format: double }
+        email: { type: string, format: email }
+        active: { type: boolean }
+        opened_at: { type: string, format: date-time }
+        note: { type: string, nullable: true }
+        tier: { type: string, enum: [free, pro, enterprise] }
+        priority: { enum: [1, 2, 3] }
+
+    # Referenced twice below, and therefore one type rather than two.
+    Customer:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        account: { $ref: "#/components/schemas/Account" }
+
+    # allOf as inheritance: the generated model needs the inherited fields.
+    Identified:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer, format: int64 }
+
+    Order:
+      allOf:
+        - { $ref: "#/components/schemas/Identified" }
+        - type: object
+          required: [buyer]
+          properties:
+            buyer: { $ref: "#/components/schemas/Customer" }
+            total: { type: number }
+            lines:
+              type: array
+              items: { $ref: "#/components/schemas/OrderLine" }
+            # An inline object, named after its parent and property.
+            shipping:
+              type: object
+              required: [city]
+              properties:
+                city: { type: string }
+                postcode: { type: string, nullable: true }
+            # An inline array element, named with the Item suffix.
+            labels:
+              type: array
+              items:
+                type: object
+                properties:
+                  key: { type: string }
+                  value: { type: string }
+
+    OrderLine:
+      type: object
+      required: [sku, quantity]
+      properties:
+        sku: { type: string }
+        quantity: { type: integer }
+        # The same Customer type, reached by a second reference.
+        giftedTo: { $ref: "#/components/schemas/Customer" }
+
+    # Recursion through an array. No set of JSON samples can express this.
+    Category:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/Category" }
+
+    # A direct cycle between two required fields. This is the case that breaks
+    # Go — a struct containing itself by value has no finite size — so it is
+    # here to keep the generator's pointer-breaking honest against the real
+    # compiler rather than against an assertion.
+    TreeNode:
+      type: object
+      required: [leaf]
+      properties:
+        label: { type: string }
+        leaf: { $ref: "#/components/schemas/TreeLeaf" }
+
+    TreeLeaf:
+      type: object
+      required: [owner]
+      properties:
+        owner: { $ref: "#/components/schemas/TreeNode" }
+
+    # A union of two object branches.
+    Payment:
+      type: object
+      properties:
+        method:
+          oneOf:
+            - { $ref: "#/components/schemas/CardPayment" }
+            - { $ref: "#/components/schemas/BankPayment" }
+
+    CardPayment:
+      type: object
+      required: [last4]
+      properties:
+        last4: { type: string }
+
+    BankPayment:
+      type: object
+      required: [iban]
+      properties:
+        iban: { type: string }

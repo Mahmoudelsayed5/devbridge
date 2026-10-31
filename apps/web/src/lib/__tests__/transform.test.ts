@@ -22,16 +22,37 @@ const SQL_SAMPLE = `
   CREATE TABLE orders (id INT PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id));
 `;
 
-/** An input each source format can actually parse. */
+/**
+ * An input each source format can actually parse.
+ *
+ * The OpenAPI one carries both halves on purpose: its `paths` feed the
+ * Postman target and its `components/schemas` feed the five language targets,
+ * and this fixture drives every one of them.
+ */
 const OPENAPI_SAMPLE = `
 openapi: 3.0.3
 info: { title: Demo, version: "1.0" }
 servers: [{ url: "https://api.example.com" }]
+components:
+  schemas:
+    Thing:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
 paths:
   /things:
     get:
       summary: List things
-      responses: { "200": { description: OK } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Thing" }
 `;
 
 const INPUT_FOR: Readonly<Record<string, string>> = {
@@ -167,7 +188,17 @@ describe("source and target pairing", () => {
       "dbml",
     ]);
 
-    expect(targetsForSource("openapi").map((t) => t.id)).toEqual(["postman"]);
+    // OpenAPI is the one source with two readings: its paths are requests and
+    // its components/schemas are data shapes. The API target leads, because
+    // that is the document's primary reading.
+    expect(targetsForSource("openapi").map((t) => t.id)).toEqual([
+      "postman",
+      "typescript",
+      "java",
+      "go",
+      "python",
+      "csharp",
+    ]);
   });
 
   it("has a loadable sample for every source", () => {
@@ -280,5 +311,29 @@ describe("buildGeneratorOptions", () => {
     const registered = availableTargets().map((target) => target.id).sort();
 
     expect(Object.keys(TARGETS).sort()).toEqual(registered);
+  });
+});
+
+describe("what the discovered names are called", () => {
+  it("follows the IR the transformation used, not the source", () => {
+    // The same OpenAPI document counts endpoints for Postman and types for a
+    // language target, because the two targets read different halves of it.
+    expect(runTransform(OPENAPI_SAMPLE, "postman", {}, undefined, "openapi").noun).toBe(
+      "endpoint",
+    );
+
+    expect(
+      runTransform(OPENAPI_SAMPLE, "typescript", {}, undefined, "openapi").noun,
+    ).toBe("type");
+  });
+
+  it("calls SQL results tables", () => {
+    expect(runTransform(SQL_SAMPLE, "mermaid", {}, undefined, "sql").noun).toBe(
+      "table",
+    );
+  });
+
+  it("calls JSON results types", () => {
+    expect(runTransform(SAMPLE, "typescript").noun).toBe("type");
   });
 });

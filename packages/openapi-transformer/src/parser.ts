@@ -1,4 +1,5 @@
 import type {
+  AlsoProducesTypeGraph,
   ApiBody,
   ApiModel,
   ApiOperation,
@@ -14,9 +15,17 @@ import type {
   SecurityKind,
 } from "@devbridge/core";
 import { TransformationError } from "@devbridge/core";
-import { parse as parseYaml } from "yaml";
 
+import {
+  NO_OPERATIONS,
+  pathsOf,
+  readDocument,
+  record,
+  text,
+  validateDocument,
+} from "./document.js";
 import { deref, describeType, exampleFor, scalarExample } from "./schema.js";
+import { parseOpenApiSchemas } from "./schemas.js";
 
 const METHODS = [
   "get",
@@ -28,93 +37,6 @@ const METHODS = [
   "patch",
   "trace",
 ] as const;
-
-const EMPTY_INPUT: Diagnostic = {
-  severity: "error",
-  code: "openapi/empty-input",
-  message: "The input is empty.",
-  line: 1,
-  column: 1,
-  hint: "Paste or load an OpenAPI document first.",
-};
-
-const NOT_OPENAPI: Diagnostic = {
-  severity: "error",
-  code: "openapi/not-openapi",
-  message: "This does not look like an OpenAPI document.",
-  line: 1,
-  column: 1,
-  hint: 'An OpenAPI 3 document has a top-level "openapi" field, for example openapi: 3.0.3.',
-};
-
-const SWAGGER_2: Diagnostic = {
-  severity: "error",
-  code: "openapi/swagger-2",
-  message: "Swagger 2.0 documents are not supported; this reads OpenAPI 3.",
-  line: 1,
-  column: 1,
-  hint: "Convert the document to OpenAPI 3 first, for example with swagger2openapi.",
-};
-
-const NO_OPERATIONS: Diagnostic = {
-  severity: "error",
-  code: "openapi/no-operations",
-  message: "The document declares no paths, so there is nothing to request.",
-  line: 1,
-  column: 1,
-};
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/**
- * Reads the document as JSON or YAML.
- *
- * OpenAPI documents are written in both, roughly evenly, so supporting only
- * one would make the feature half useful. YAML is a superset of JSON, so one
- * parser covers both — but JSON is tried first because its errors are better.
- */
-function readDocument(input: string): {
-  document: unknown;
-  diagnostic?: Diagnostic;
-} {
-  const source = input.replace(/^﻿/, "");
-
-  try {
-    return { document: JSON.parse(source) };
-  } catch {
-    // Not JSON; fall through to YAML.
-  }
-
-  try {
-    return { document: parseYaml(source) };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    // The yaml package reports a line/col in its message; surface it as-is.
-    const position = /at line (\d+), column (\d+)/.exec(message);
-
-    return {
-      document: undefined,
-      diagnostic: {
-        severity: "error",
-        code: "openapi/invalid-syntax",
-        message: message.split("\n")[0] ?? message,
-        ...(position?.[1] === undefined
-          ? {}
-          : { line: Number(position[1]), column: Number(position[2]) }),
-        hint: "The document must be valid JSON or YAML.",
-      },
-    };
-  }
-}
 
 function parseParameters(
   document: unknown,
@@ -301,39 +223,18 @@ function securityNames(raw: unknown): string[] {
   return raw.flatMap((entry) => Object.keys(record(entry) ?? {}));
 }
 
-/** Reports every problem that would stop `parseOpenApi` from producing IR. */
+/**
+ * Reports problems with the document as a document.
+ *
+ * This is the parser's `validate`, which the editors and the web app call as
+ * you type — before any target has been chosen. It therefore checks only what
+ * every reading needs, and in particular does *not* require `paths`: a file
+ * of nothing but reusable schemas is valid input for the language targets.
+ * Whether the half you need is actually present is settled by the parse,
+ * which is the first point at which the target is known.
+ */
 export function validateOpenApi(input: string): readonly Diagnostic[] {
-  if (input.trim().length === 0) {
-    return [EMPTY_INPUT];
-  }
-
-  const { document, diagnostic } = readDocument(input);
-
-  if (diagnostic !== undefined) {
-    return [diagnostic];
-  }
-
-  const root = record(document);
-
-  if (root === undefined) {
-    return [NOT_OPENAPI];
-  }
-
-  if (text(root["swagger"]) !== undefined) {
-    return [SWAGGER_2];
-  }
-
-  if (text(root["openapi"]) === undefined) {
-    return [NOT_OPENAPI];
-  }
-
-  const paths = record(root["paths"]);
-
-  if (paths === undefined || Object.keys(paths).length === 0) {
-    return [NO_OPERATIONS];
-  }
-
-  return [];
+  return validateDocument(input);
 }
 
 /**
@@ -354,10 +255,18 @@ export function parseOpenApi(
 
   const { document } = readDocument(input);
   const root = record(document) as Record<string, unknown>;
+
+  // Checked here rather than in `validate` because it is specific to this
+  // reading: a schemas-only document is perfectly good input for the language
+  // targets, and only fails when you ask it for a collection of requests.
+  if (pathsOf(document) === undefined) {
+    throw new TransformationError(NO_OPERATIONS.message, [NO_OPERATIONS]);
+  }
+
   const diagnostics: Diagnostic[] = [];
 
   const info = record(root["info"]);
-  const paths = record(root["paths"]) as Record<string, unknown>;
+  const paths = pathsOf(document) as Record<string, unknown>;
   const globalSecurity = securityNames(root["security"]);
 
   const servers: ApiServer[] = Array.isArray(root["servers"])
@@ -474,11 +383,21 @@ export function parseOpenApi(
   return { model, diagnostics };
 }
 
-export const openApiParser: ApiSourceParser = {
+/**
+ * The OpenAPI parser, which is the one source that offers two IRs.
+ *
+ * Its `paths` are HTTP endpoints and become a Postman collection; its
+ * `components/schemas` are data shapes and become models in any of the five
+ * languages. The engine picks the reading from the target you chose — see
+ * {@link AlsoProducesTypeGraph}.
+ */
+export const openApiParser: ApiSourceParser & AlsoProducesTypeGraph = {
   id: "openapi",
   irKind: "api",
   label: "OpenAPI",
   extensions: ["yaml", "yml", "openapi"],
   parse: (input, options) => parseOpenApi(input, options ?? {}),
   validate: validateOpenApi,
+  alsoProduces: "type-graph",
+  parseTypeGraph: (input, options) => parseOpenApiSchemas(input, options ?? {}),
 };

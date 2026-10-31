@@ -98,10 +98,52 @@ export interface ApiSourceParser extends FormatMeta {
   validate(input: string): readonly Diagnostic[];
 }
 
+/**
+ * Lets a parser offer the type-graph IR *in addition* to its primary one.
+ *
+ * Most source formats describe one kind of thing, and the `irKind` pairing
+ * rule exists because feeding a JSON type graph to an ERD generator is a
+ * mistake worth naming. OpenAPI is the real exception: its `paths` are HTTP
+ * endpoints and its `components/schemas` are data shapes, and both readings
+ * are legitimate — which half you want depends on what you asked for.
+ *
+ * So rather than forcing one reading, or splitting one format into two source
+ * entries the user has to choose between, such a parser declares the extra IR
+ * it can produce and the engine picks based on the chosen target.
+ *
+ * This is deliberately an addition rather than a general "list of IRs" on
+ * every parser: only one secondary IR has turned out to be worth having, and
+ * it is always the type graph, because that is where the generators are.
+ */
+export interface AlsoProducesTypeGraph {
+  readonly alsoProduces: "type-graph";
+  parseTypeGraph(input: string, options?: ParseOptions): ParseResult;
+}
+
 export type AnySourceParser =
   | SourceParser
   | RelationalSourceParser
-  | ApiSourceParser;
+  | ApiSourceParser
+  | (RelationalSourceParser & AlsoProducesTypeGraph)
+  | (ApiSourceParser & AlsoProducesTypeGraph);
+
+/** True when `parser` can also produce the type-graph IR. */
+export function producesTypeGraph(
+  parser: AnySourceParser,
+): parser is AnySourceParser & AlsoProducesTypeGraph {
+  return (
+    "alsoProduces" in parser &&
+    parser.alsoProduces === "type-graph" &&
+    typeof (parser as AlsoProducesTypeGraph).parseTypeGraph === "function"
+  );
+}
+
+/** Every IR `parser` can produce, primary first. */
+export function irKindsOf(parser: AnySourceParser): readonly IrKind[] {
+  return producesTypeGraph(parser)
+    ? [parser.irKind, "type-graph"]
+    : [parser.irKind];
+}
 
 /** Turns the type-graph IR into target source code. */
 export interface TargetGenerator extends FormatMeta {

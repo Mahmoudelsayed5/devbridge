@@ -19,10 +19,20 @@ CREATE TABLE users (id INT PRIMARY KEY);
 CREATE TABLE orders (id INT PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id));
 `;
 
+// Carries both halves: `paths` for the Postman target, `components/schemas`
+// for the five language targets.
 const OPENAPI_SAMPLE = `
 openapi: 3.0.3
 info: { title: Demo, version: "1.0" }
 servers: [{ url: "https://api.example.com" }]
+components:
+  schemas:
+    Thing:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
 paths:
   /things:
     get: { summary: List things, responses: { "200": { description: OK } } }
@@ -108,6 +118,11 @@ describe("choices", () => {
 
     expect(targetChoices("openapi").map((choice) => choice.id)).toEqual([
       "postman",
+      "typescript",
+      "java",
+      "go",
+      "python",
+      "csharp",
     ]);
   });
 });
@@ -214,7 +229,7 @@ describe("describeResult and noteworthy", () => {
     expect(outcome.ok).toBe(true);
 
     if (outcome.ok) {
-      expect(describeResult(outcome, "java")).toBe("2 types, 2 files");
+      expect(describeResult(outcome)).toBe("2 types, 2 files");
     }
   });
 
@@ -224,7 +239,7 @@ describe("describeResult and noteworthy", () => {
     expect(outcome.ok).toBe(true);
 
     if (outcome.ok) {
-      expect(describeResult(outcome, "postman")).toBe("1 endpoint, 1 file");
+      expect(describeResult(outcome)).toBe("1 endpoint, 1 file");
     }
   });
 
@@ -235,5 +250,24 @@ describe("describeResult and noteworthy", () => {
         { severity: "warning", code: "b", message: "y" },
       ]).map((diagnostic) => diagnostic.code),
     ).toEqual(["b"]);
+  });
+});
+
+describe("describeResult", () => {
+  it("names endpoints and types from the same OpenAPI document", () => {
+    const postman = runTransform(OPENAPI_SAMPLE, "openapi", "postman");
+    const types = runTransform(OPENAPI_SAMPLE, "openapi", "typescript");
+
+    expect(postman.ok && describeResult(postman)).toContain(
+      "endpoint",
+    );
+
+    expect(types.ok && describeResult(types)).toContain("type");
+  });
+
+  it("names SQL results tables rather than types", () => {
+    const outcome = runTransform(SQL_SAMPLE, "sql", "mermaid");
+
+    expect(outcome.ok && describeResult(outcome)).toContain("table");
   });
 });
