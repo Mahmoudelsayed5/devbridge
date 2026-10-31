@@ -271,8 +271,8 @@ importers:
         version: link:../core
     devDependencies:
       '@dbml/core':
-        specifier: ^10.3.1
-        version: 10.3.1
+        specifier: ^11.0.0
+        version: 11.0.0
       '@devbridge/sql-transformer':
         specifier: workspace:*
         version: link:../sql-transformer
@@ -488,12 +488,12 @@ packages:
     resolution: {integrity: sha512-ixSO1Y/kCVRthRs+hSx/5qkwaunX1/RAePhlMN0wIpIQ4WEZ6AREGGnGd1AP0qspHVsAwzWQKGubpjh50JyJIQ==}
     engines: {node: '>=20'}
 
-  '@dbml/core@10.3.1':
-    resolution: {integrity: sha512-swCpThxQchab6d6wP5gp/UFcArmptyIRFaAEUW8Z8oNrTYluVlh0Ru6AsB44JiA4+lVgNk0yeF1ewuOuFT3ZPA==}
+  '@dbml/core@11.0.0':
+    resolution: {integrity: sha512-4KkWdakmvZgPyDJmDomzm1z4GaN4sCUZR2ezDjs435C8FbQxUQeHDUpMVZqJlnfSFVPz4l50PonDrb9hh1+YQA==}
     engines: {node: '>=16'}
 
-  '@dbml/parse@10.3.1':
-    resolution: {integrity: sha512-l2T+RYUpkCxqSlqMnc3YOwJyLDnDDckddG26KO4vwtYGJKIPYautzBi+ypKxEMdLvuNpHN/HkRCteApeZei8TA==}
+  '@dbml/parse@11.0.0':
+    resolution: {integrity: sha512-vmPZqzAJPAOf+zRy0lgnTtUzllmrG6peOHBdgY3k2vUe3B84lw3G/kEZHE6r+xq6rIZPviGYKc0AdlgDXj7szg==}
     engines: {node: '>=18'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1960,9 +1960,9 @@ snapshots:
       '@azure/msal-common': 16.14.1
       jsonwebtoken: 9.0.3
 
-  '@dbml/core@10.3.1':
+  '@dbml/core@11.0.0':
     dependencies:
-      '@dbml/parse': 10.3.1
+      '@dbml/parse': 11.0.0
       antlr4: 4.13.2
       lodash: 4.18.1
       lodash-es: 4.18.1
@@ -1970,7 +1970,7 @@ snapshots:
       parsimmon: 1.18.1
       pluralize: 8.0.0
 
-  '@dbml/parse@10.3.1':
+  '@dbml/parse@11.0.0':
     dependencies:
       lodash-es: 4.18.1
       luxon: 3.7.2
