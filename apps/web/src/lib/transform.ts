@@ -18,7 +18,20 @@ export interface TransformOutcome {
   readonly preview: string;
   /** Names of every type discovered, root first. */
   readonly types: readonly string[];
+  /**
+   * What those names are, which follows the IR the transformation used and
+   * not the source: an OpenAPI document produces endpoints for Postman and
+   * types for the language targets.
+   */
+  readonly noun: string;
 }
+
+/** What a count of names refers to, per IR family. */
+const NOUNS: Readonly<Record<string, string>> = {
+  "type-graph": "type",
+  relational: "table",
+  api: "endpoint",
+};
 
 const EMPTY: TransformOutcome = {
   status: "empty",
@@ -26,6 +39,7 @@ const EMPTY: TransformOutcome = {
   files: [],
   preview: "",
   types: [],
+  noun: "type",
 };
 
 /**
@@ -62,8 +76,9 @@ export function runTransform(
       diagnostics: result.diagnostics,
       files: result.files,
       preview: result.preview,
-      // Type names for JSON, table names for SQL.
+      // Type names for JSON, table names for SQL, endpoints for Postman.
       types: result.names,
+      noun: NOUNS[result.irKind] ?? "type",
     };
   } catch (error) {
     if (error instanceof TransformationError) {
@@ -84,6 +99,7 @@ export function runTransform(
         files: [],
         preview: "",
         types: [],
+        noun: "type",
       };
     }
 
@@ -99,6 +115,7 @@ export function runTransform(
       files: [],
       preview: "",
       types: [],
+      noun: "type",
     };
   }
 }

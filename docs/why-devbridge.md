@@ -16,7 +16,8 @@ their own data without installing anything or uploading it anywhere.
 
 Paste a JSON response, get typed models in TypeScript, Java, Go, Python or C#.
 Paste a SQL schema, get an entity-relationship diagram or a DBML document.
-Paste an OpenAPI spec, get a ready-to-import Postman collection.
+Paste an OpenAPI spec, get a ready-to-import Postman collection — or models in
+any of five languages, from the same file.
 
 ---
 
@@ -106,6 +107,12 @@ This is not just theory — it's the measured result. Adding the two SQL targets
 required **no changes to the JSON parser and no changes to the five language
 generators**.
 
+The sharper demonstration came later. Teaching OpenAPI to produce typed models
+in all five languages required **no new generator at all** — the schemas are
+data shapes, the type-graph IR already describes data shapes, and the existing
+generators consumed them unchanged. Five new source-to-target pairs for one
+new parser reading. A pair-by-pair tool would have had five programs to write.
+
 ---
 
 ## What makes it worth choosing
@@ -128,8 +135,8 @@ is the only one of these tools you can point a compliance reviewer at.
 
 ### 2. The output actually compiles
 
-Most converters produce text that *looks* right. DevBridge's CI generates a
-deliberately awkward fixture into every target and runs the **real toolchain**
+Most converters produce text that *looks* right. DevBridge's CI generates two
+deliberately awkward fixtures into every target and runs the **real toolchain**
 over the result:
 
 | Target | Verified by |
@@ -145,6 +152,14 @@ over the result:
 That last row found a real bug: Mermaid rejects a comma inside an attribute
 type, so `decimal(10,2)` broke the diagram. Output that merely looked correct
 would have shipped.
+
+So did the second fixture, the moment it was added. An OpenAPI document can
+describe a type that refers back to itself — two schemas referencing each
+other — and **Go rejects a struct that contains itself by value**. The Go
+generator had been emitting uncompilable code for that case, and nothing had
+caught it because no JSON sample can express a cycle, so a compiler had never
+been shown one. Reading the generator would not have found it; running `go
+vet` over its output did, immediately.
 
 ### 3. It is right in the places this is easy to get wrong
 
@@ -206,6 +221,27 @@ A team publishes a spec but no Postman collection, so everyone hand-builds
 requests and gets the auth header subtly wrong. Paste the spec, get a
 collection with every endpoint, bodies prefilled from the schemas, path
 parameters wired up, and auth configured once at the collection level.
+
+### For anyone handed an OpenAPI spec and no client library
+The same spec, pointed at a language instead: `components/schemas` become
+models in TypeScript, Java, Go, Python or C#. One document, two useful
+outputs — the collection to call the API with, and the types to hold what it
+returns.
+
+This is also the *best* input the models can have, and noticeably better than
+pasting a sample response. A sample leaves three things to guesswork that a
+schema simply states:
+
+- **Is this field optional?** A sample can only tell you it was absent that
+  time. `required` tells you.
+- **Are these two objects the same type?** Two identical-looking shapes might
+  be one concept or two. A `$ref` says.
+- **Will this id overflow an `int`?** A sample containing `42` gives no clue.
+  `format: int64` does — and a 32-bit overflow in production is a genuinely
+  expensive way to find out.
+
+Recursive structures work too — a category tree, a comment thread — which no
+number of sample payloads can express.
 
 ### For documenting or migrating a legacy database
 `SQL → DBML` gives you a document you can keep in version control and open in
@@ -293,7 +329,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-310 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+356 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 

@@ -113,6 +113,13 @@ export function targetChoices(source: string): readonly TargetChoice[] {
   }));
 }
 
+/** What a count of names refers to, per IR family. */
+const NOUNS: Readonly<Record<string, string>> = {
+  "type-graph": "type",
+  relational: "table",
+  api: "endpoint",
+};
+
 export type TransformOutcome =
   | {
       readonly ok: true;
@@ -121,6 +128,12 @@ export type TransformOutcome =
       readonly language: string;
       readonly diagnostics: readonly Diagnostic[];
       readonly names: readonly string[];
+      /**
+       * What those names are. It follows the IR the transformation used,
+       * not the source: an OpenAPI document yields endpoints for Postman
+       * and types for the language targets.
+       */
+      readonly noun: string;
     }
   | {
       readonly ok: false;
@@ -157,6 +170,7 @@ export function runTransform(
       language: languageForTarget(target),
       diagnostics: result.diagnostics,
       names: result.names,
+      noun: NOUNS[result.irKind] ?? "type",
     };
   } catch (error) {
     if (error instanceof TransformationError) {
@@ -219,10 +233,9 @@ export function runValidate(text: string, source: string): ValidationSummary {
 /** One line summarising what a successful transformation produced. */
 export function describeResult(
   outcome: Extract<TransformOutcome, { ok: true }>,
-  target: string,
 ): string {
-  const count = outcome.names.length;
-  const noun = target === "postman" ? "endpoint" : "type";
+  const { names, noun } = outcome;
+  const count = names.length;
 
   const parts = [
     `${count} ${count === 1 ? noun : `${noun}s`}`,

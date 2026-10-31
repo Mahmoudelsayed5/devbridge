@@ -25,7 +25,7 @@ There are three intermediate representations, and each split is deliberate.
 
 | IR | Models | Fed by | Feeds |
 | --- | --- | --- | --- |
-| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions | `json` | `typescript`, `java`, `go`, `python`, `csharp` |
+| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
 | **relational** (`RelationalModel`) | tables, columns, keys and the relationships between them | `sql` | `mermaid`, `dbml` |
 | **api** (`ApiModel`) | endpoints: verbs, paths, parameters, bodies and responses | `openapi` | `postman` |
 
@@ -34,9 +34,33 @@ each of these is a place where that stops being practical. There is nowhere
 in `TypeNode` to record that a column references another table's primary key,
 and an ERD is mostly a drawing of exactly those references. There is likewise
 no slot for `GET`, a path parameter or a `404`, and a Postman collection is a
-list of requests. An OpenAPI document's `components/schemas` *would* fit the
-type graph — but its `paths` are the part that matters here, and they would
-be the part thrown away.
+list of requests.
+
+### One document, two readings
+
+OpenAPI appears twice in that table, and it is the only source that does.
+Its `paths` are HTTP endpoints and its `components/schemas` are data shapes;
+both readings are legitimate, and which one you want depends on what you
+asked for. So the parser declares that it *also* produces the type graph, and
+the engine picks the reading from the chosen target — `--to postman` reads the
+paths, `--to java` reads the schemas.
+
+That is deliberately a small addition rather than a general "list of IRs" on
+every parser: only one secondary IR has proved worth having, and it is always
+the type graph, because that is where the generators are.
+
+Reading schemas rather than samples is also better information in three
+places, and the language models come out stronger for it:
+
+| | from JSON samples | from OpenAPI schemas |
+| --- | --- | --- |
+| **Shared types** | two identical shapes must be guessed as one type or two | a `$ref` says they are the same type |
+| **Optional fields** | inferred from "absent in at least one sample" | the `required` list states it |
+| **Integer width** | inferred from magnitude, so `42` looks like an `int` | `format: int64` states it |
+
+Recursion comes free for the same reason: a `$ref` is a link by name, so a
+category whose children are categories is an ordinary cycle in the graph,
+where no finite set of JSON samples could describe one.
 
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
@@ -61,6 +85,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 6 | OpenAPI family (Postman) | done |
 | 7 | VS Code extension | done |
 | 7b | Chrome extension | see docs/roadmap.md — recommended against for now |
+| 8 | OpenAPI → language models (second IR from one source) | done |
 
 ## Packages
 
@@ -76,7 +101,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | `@devbridge/sql-transformer` | SQL → relational IR (tables, keys, foreign keys) |
 | `@devbridge/mermaid-transformer` | Relational IR → Mermaid `erDiagram` |
 | `@devbridge/dbml-transformer` | Relational IR → DBML |
-| `@devbridge/openapi-transformer` | OpenAPI 3 (YAML or JSON) → API IR |
+| `@devbridge/openapi-transformer` | OpenAPI 3 (YAML or JSON) → API IR, and `components/schemas` → type graph |
 | `@devbridge/postman-transformer` | API IR → Postman collection v2.1 |
 | `@devbridge/engine` | Wires every parser and generator into one `transform()` call |
 | `@devbridge/cli` | `devbridge transform`, `devbridge validate`, `devbridge formats` |
@@ -154,7 +179,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 310 tests pass.
+14 packages build clean, 356 tests pass.
 
 Linting is oxlint rather than ESLint, because typescript-eslint does not
 support TypeScript 7 and this repo targets the native port:
@@ -174,12 +199,23 @@ target language, which is a stronger and different claim:
 pnpm verify:generated
 ```
 
-It generates `fixtures/kitchen-sink.json` into every target and runs that
+It generates **two** fixtures — `fixtures/kitchen-sink.json` and
+`fixtures/kitchen-sink.openapi.yaml` — into every target and runs that
 language's real toolchain: `tsc --strict`, `javac -Xlint:all`, `go vet` plus a
 `gofmt -l` canonical-formatting check, `py_compile` plus `typing.get_type_hints`
 on every dataclass, and `dotnet build` with `TreatWarningsAsErrors`. A missing
 toolchain is skipped; `pnpm verify:generated:strict` makes it a failure instead,
 which is what CI uses.
+
+Both fixtures, because the two readings reach the generators with different
+material. The OpenAPI one earned its place immediately: it contains a pair of
+mutually referencing schemas, and **a struct containing itself by value is not
+a legal Go type**, so the Go generator was emitting code that `go vet` rejects
+outright. No set of JSON samples can describe a cycle, so nothing before this
+had ever put that case in front of a compiler. The generator now breaks a
+cycle with a pointer on exactly the edge that closes it, which is what a Go
+author would write by hand; the other four languages were unaffected, their
+fields being references already.
 
 The two relational targets have no compiler, so they are verified differently
 and in the normal test run: the generated DBML is parsed by the official
@@ -372,6 +408,11 @@ not an error — the relationship is still drawn.
 
 No parser changes are needed, and the web app picks the new target up from the
 registry on its own.
+
+A type-graph target gets two fixtures' worth of exercise for free, so add the
+language to `scripts/verify-generated.mjs` as well: the OpenAPI fixture
+carries shared references, declared integer widths and a reference cycle,
+none of which the JSON fixture can express.
 
 ## Scope
 

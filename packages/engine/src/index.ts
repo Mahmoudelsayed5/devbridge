@@ -15,6 +15,8 @@ import {
   GeneratorRegistry,
   ParserRegistry,
   TransformationError,
+  irKindsOf,
+  producesTypeGraph,
 } from "@devbridge/core";
 
 import { cSharpGenerator } from "@devbridge/csharp-transformer";
@@ -103,17 +105,24 @@ export function targetsFor(source: string): readonly FormatSummary[] {
     return [];
   }
 
-  return generators
-    .list()
-    .filter((generator) => generator.irKind === parser.irKind)
-    .map(({ id, label }) => ({ id, label }));
+  const kinds = irKindsOf(parser);
+
+  // Grouped by IR in the parser's own order of precedence, so a source that
+  // offers two readings leads with its primary one: an OpenAPI document is a
+  // description of an API first and a bag of models second.
+  return kinds.flatMap((kind) =>
+    generators
+      .list()
+      .filter((generator) => generator.irKind === kind)
+      .map(({ id, label }) => ({ id, label })),
+  );
 }
 
 function assertCompatible(
   parser: AnySourceParser,
   generator: AnyTargetGenerator,
 ): void {
-  if (parser.irKind === generator.irKind) {
+  if (irKindsOf(parser).includes(generator.irKind)) {
     return;
   }
 
@@ -121,8 +130,12 @@ function assertCompatible(
     .map((target) => target.id)
     .join(", ");
 
+  const produces = irKindsOf(parser)
+    .map((kind) => FAMILY_LABEL[kind])
+    .join(" and ");
+
   throw new TransformationError(
-    `"${generator.id}" cannot read ${parser.label}: it renders ${FAMILY_LABEL[generator.irKind]}, and ${parser.label} produces ${FAMILY_LABEL[parser.irKind]}. Available targets for ${parser.id}: ${usable}.`,
+    `"${generator.id}" cannot read ${parser.label}: it renders ${FAMILY_LABEL[generator.irKind]}, and ${parser.label} produces ${produces}. Available targets for ${parser.id}: ${usable}.`,
   );
 }
 
@@ -172,8 +185,23 @@ export function transform(request: TransformRequest): TransformResult {
     };
   }
 
-  if (parser.irKind === "type-graph" && generator.irKind === "type-graph") {
-    const parsed = parser.parse(request.input, request.parseOptions);
+  if (generator.irKind === "type-graph") {
+    // Either the parser's own IR is the type graph, or it is a parser that
+    // offers the type graph as a second reading of the same document — the
+    // OpenAPI case, where `components/schemas` are data shapes even though
+    // `paths` are not.
+    const parsed =
+      parser.irKind === "type-graph"
+        ? parser.parse(request.input, request.parseOptions)
+        : producesTypeGraph(parser)
+          ? parser.parseTypeGraph(request.input, request.parseOptions)
+          : undefined;
+
+    if (parsed === undefined) {
+      throw new TransformationError(
+        `Cannot pair "${parser.id}" with "${generator.id}".`,
+      );
+    }
 
     const generated = generator.generate(
       parsed.root,

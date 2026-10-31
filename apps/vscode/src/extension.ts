@@ -112,7 +112,7 @@ async function transformCommand(): Promise<void> {
           path: file.path,
         })),
       ],
-      { title: `DevBridge: ${describeResult(outcome, target.id)}` },
+      { title: `DevBridge: ${describeResult(outcome)}` },
     );
 
     if (picked === undefined) {
@@ -139,7 +139,7 @@ async function transformCommand(): Promise<void> {
     );
   } else {
     void vscode.window.setStatusBarMessage(
-      `DevBridge: ${describeResult(outcome, target.id)}`,
+      `DevBridge: ${describeResult(outcome)}`,
       4000,
     );
   }

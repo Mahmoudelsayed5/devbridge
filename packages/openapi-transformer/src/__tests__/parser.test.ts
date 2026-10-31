@@ -258,10 +258,27 @@ describe("validateOpenApi", () => {
     expect(diagnostics[0]?.hint).toContain("swagger2openapi");
   });
 
-  it("rejects a document with no paths", () => {
+  it("rejects a document carrying neither paths nor schemas", () => {
+    // `validate` runs before a target is chosen, so it reports only that
+    // there is nothing to read at all. Having no *paths* is specific to the
+    // API reading and is reported by `parseOpenApi` instead — see below.
     expect(
       validateOpenApi("openapi: 3.0.0\ninfo: { title: T }\npaths: {}")[0]?.code,
-    ).toBe("openapi/no-operations");
+    ).toBe("openapi/no-content");
+  });
+
+  it("rejects a document with no paths at the point it is asked for them", () => {
+    const schemasOnly = `openapi: 3.0.0
+info: { title: T }
+components:
+  schemas:
+    Pet:
+      type: object
+      properties: { name: { type: string } }
+`;
+
+    expect(validateOpenApi(schemasOnly)).toEqual([]);
+    expect(() => parseOpenApi(schemasOnly)).toThrow(/no paths/);
   });
 
   it("reports a syntax error", () => {

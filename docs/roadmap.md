@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after phase 7 and the hardening pass that followed it.
+Last updated after OpenAPI gained a second IR.
 
 ---
 
@@ -15,21 +15,21 @@ Last updated after phase 7 and the hardening pass that followed it.
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 310, all passing |
+| Tests | 356, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
 ```
-             ┌── TypeScript ─┐
-JSON ─────┐  ├── Java ───────┤
-          ├──┼── Go ─────────┤  type-graph IR
-          │  ├── Python ─────┤
-          │  └── C# ─────────┘
-          │
-SQL ──────┴──┬── Mermaid ERD ┐  relational IR
-             └── DBML ───────┘
-
-OpenAPI ─────── Postman ─────── api IR
+                        ┌── TypeScript ─┐
+JSON ────────────────┐  ├── Java ───────┤
+                     ├──┼── Go ─────────┤  type-graph IR
+OpenAPI  components ─┤  ├── Python ─────┤
+   │     /schemas    │  └── C# ─────────┘
+   │                 │
+   │          SQL ───┴──┬── Mermaid ERD ┐  relational IR
+   │                    └── DBML ───────┘
+   │
+   └──────── paths ───── Postman ─────── api IR
 ```
 
 ---
@@ -124,6 +124,12 @@ for a verb, a path parameter or a `404`. A third IR it was.
 Cost of the third IR: the `ApiModel` file, the two packages, and four lines of
 engine wiring. Nothing in the other six generators changed.
 
+The alternative buried in that paragraph — that `components/schemas` fits the
+type graph and was simply being left on the floor — was picked up later and
+became phase 8 below. The judgement here was right, though: the question was
+never which IR OpenAPI *is*, but that it is both, and answering it properly
+needed a parser able to offer two.
+
 ### Phase 7 — VS Code extension
 
 The engine was already a plain, browser-safe library, so this was packaging
@@ -180,6 +186,55 @@ six times out of six here.
 **`noUnusedLocals` found nothing**, which was the point. A clean result makes
 it a ratchet rather than a cleanup.
 
+### Phase 8 — OpenAPI → language models
+
+The last structural gap: an OpenAPI document's `components/schemas` are data
+shapes, and the five language generators had no way to see them. The file
+could become a Postman collection or nothing.
+
+**The contract change is four lines.** A parser may declare
+`alsoProduces: "type-graph"` and a `parseTypeGraph` method; the engine asks
+for whichever IR the chosen target consumes. Deliberately not a general "list
+of IRs" on every parser — only one secondary IR has proved worth having, and
+it is always the type graph, because that is where the generators are. No
+other parser or generator changed.
+
+**The schema reading is better information than inference, in three places.**
+This is the part worth keeping:
+
+| | from JSON samples | from OpenAPI schemas |
+| --- | --- | --- |
+| Shared types | two identical shapes must be *guessed* as one type or two | a `$ref` states they are one |
+| Optional fields | inferred from "absent in at least one sample" | the `required` list states it |
+| Integer width | inferred from magnitude, so `42` looks like an `int` | `format: int64` states it |
+
+That last row retires a guess the project had already paid for once: the
+`integerWidth` heuristic exists because JSON has a single number type. The
+same ambiguity simply does not arise here.
+
+**It found a real bug in a generator that had shipped for months.** Because a
+`$ref` is a link by name, a cycle is ordinary — a category whose children are
+categories, two schemas that reference each other. No finite set of JSON
+samples can describe one, so in three phases of language generation nothing
+had ever handed a cyclic type graph to a compiler. Go rejects a struct that
+contains itself by value: `invalid recursive type`. The other four languages
+were unaffected, their fields being references already.
+
+The fix is what a Go author would write by hand — a pointer — applied to
+exactly the edge that closes the cycle, so ordinary nested structs stay
+values. The generator now does its own cycle detection.
+
+**And it was found the way this project finds things**: by adding
+`fixtures/kitchen-sink.openapi.yaml` to `verify:generated` and running the
+real `go vet` over the output, not by reading the generator. The fixture now
+carries a mutual reference permanently, so the case cannot regress quietly.
+
+Two honest limits came out of it, both the same shape — the IR has no node for
+the construct, so it degrades to an untyped value and says so in a diagnostic
+rather than pretending: an `enum` becomes its base type, and a map
+(`additionalProperties`) becomes `unknown`. Both are in the "what's next"
+list above.
+
 ---
 
 ## Decisions that shaped the design
@@ -210,6 +265,19 @@ schemas. Available targets for sql: mermaid, dbml.
 The architecture survived a second source format. What it did not survive was
 the assumption of a *single* representation — and that seems like the right
 place for it to bend.
+
+It bent once more, and in a different direction, in phase 8. The rule above
+assumes each **source** has one IR, and OpenAPI does not: its paths are
+endpoints and its schemas are data shapes. So a parser may now declare a
+second IR it can also produce, and the engine picks from the target. The
+pairing rule is unchanged — it still refuses java-from-SQL — it just asks
+what a source *can* produce rather than what it *is*.
+
+Worth noting what did not happen: no IR was added, no generator was rewritten,
+and no source was split into two entries for the user to choose between. The
+honest summary of three phases of pressure is that the number of IRs is a
+property of the material, not of the design, and the design's job is to stop
+pretending otherwise as cheaply as possible.
 
 ### Verify generated output with real tools, not assertions
 
@@ -251,10 +319,15 @@ state.
 
 | Item | Why | Size |
 | --- | --- | --- |
-| **OpenAPI → language models** | The `components/schemas` half of an OpenAPI document fits the type graph, so the same file could also feed the five language generators. Needs a parser that can offer two IRs. | medium |
 | **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
+| **Real enums** | An OpenAPI `enum` currently becomes its base type, because the IR has no enum node. Adding one would improve every language target. | medium |
+| **Map types** | `additionalProperties` becomes an untyped value for the same reason — the IR has no map node. | medium |
 
 **Done since this list was written:**
+
+- ~~OpenAPI → language models~~ — done, and it is the most interesting change
+  in this list; see the phase 8 section below for what it cost and what it
+  found.
 
 - ~~Duplicate JSON keys~~ — `packages/json-transformer/src/duplicates.ts`
   now reports them as warnings (`json/duplicate-key`), through both
@@ -348,9 +421,12 @@ Stated plainly, so nobody is surprised:
 - **The VS Code extension is not published.** It builds, packages and
   installs from the `.vsix`, but reaching users through the Marketplace needs
   a publisher account that does not exist yet.
-- **OpenAPI only produces Postman.** The `components/schemas` half of a
-  document is a type graph and could feed the language generators; no parser
-  currently offers two IRs from one source.
+- **No enums and no maps in the type graph.** An OpenAPI `enum` becomes its
+  base type and `additionalProperties` becomes an untyped value, because the
+  IR has a node for neither. Both are reported as diagnostics rather than
+  passed off silently, but the generated models are weaker than the document.
+- **A discriminated union loses its discriminator.** `oneOf` becomes a plain
+  union; OpenAPI's `discriminator` has nowhere to go.
 
 ---
 

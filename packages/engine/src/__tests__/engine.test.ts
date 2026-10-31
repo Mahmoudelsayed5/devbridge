@@ -87,7 +87,13 @@ describe("targetsFor", () => {
   it("offers only targets that can read the source's IR", () => {
     expect(targetsFor("json").map((t) => t.id)).toEqual(TYPE_GRAPH_TARGETS);
     expect(targetsFor("sql").map((t) => t.id)).toEqual(RELATIONAL_TARGETS);
-    expect(targetsFor("openapi").map((t) => t.id)).toEqual(API_TARGETS);
+    // OpenAPI produces two IRs, so it offers both families — grouped in the
+    // parser's own order of precedence, primary reading first.
+    expect(targetsFor("openapi").map((t) => t.id)).toEqual([
+      ...API_TARGETS,
+      ...TYPE_GRAPH_TARGETS,
+    ]);
+
     expect(targetsFor("nope")).toEqual([]);
   });
 });

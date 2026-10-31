@@ -1,3 +1,5 @@
+import type { ObjectNode, ObjectProperty } from "@devbridge/core";
+import { TransformationContext } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -116,5 +118,61 @@ describe("integer width", () => {
 
   it("uses a pointer for an optional long", () => {
     expect(generate({ rows: [{ id: 5000000000 }, {}] })).toContain("*int64");
+  });
+});
+
+describe("recursive types", () => {
+  /** Builds a type graph directly: JSON samples cannot describe a cycle. */
+  function cyclic(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const parent: { kind: "object"; name: string; properties: ObjectProperty[] } =
+      { kind: "object", name: "Parent", properties: [] };
+
+    const child: { kind: "object"; name: string; properties: ObjectProperty[] } =
+      { kind: "object", name: "Child", properties: [] };
+
+    parent.properties.push({ name: "child", value: child, optional: false });
+    child.properties.push({ name: "parent", value: parent, optional: false });
+
+    context.registerType(parent);
+    context.registerType(child);
+
+    return { root: parent, context };
+  }
+
+  it("breaks a cycle with a pointer, on exactly one edge", () => {
+    const { root, context } = cyclic();
+    const result = collapse(generateGo(root, context));
+
+    // A struct containing itself by value is rejected by the Go compiler as
+    // an invalid recursive type; a pointer has a known size.
+    expect(result).toContain("Parent *Parent");
+    expect(result).toContain("Child Child");
+  });
+
+  it("leaves a non-cyclic nested struct as a value", () => {
+    const result = collapse(generate({ inner: { value: "x" } }));
+
+    expect(result).not.toContain("*Inner");
+  });
+
+  it("needs no pointer for recursion through a slice", () => {
+    const context = new TransformationContext();
+
+    const node: { kind: "object"; name: string; properties: ObjectProperty[] } =
+      { kind: "object", name: "Node", properties: [] };
+
+    node.properties.push({
+      name: "children",
+      value: { kind: "array", elementType: node },
+      optional: false,
+    });
+
+    context.registerType(node);
+
+    // A slice already holds its elements indirectly, so []Node inside Node
+    // is a legal Go type as it stands.
+    expect(collapse(generateGo(node, context))).toContain("Children []Node");
   });
 });

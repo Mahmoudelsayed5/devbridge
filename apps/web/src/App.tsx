@@ -79,14 +79,6 @@ export function App(): React.JSX.Element {
   const lineCount = text.length === 0 ? 0 : text.split("\n").length;
   const byteCount = new TextEncoder().encode(text).length;
 
-  // What the discovered-name count refers to, per source family.
-  const NOUNS: Readonly<Record<string, string>> = {
-    sql: "table",
-    openapi: "endpoint",
-  };
-
-  const noun = NOUNS[source] ?? "type";
-
   return (
     <div className="app">
       <header className="masthead">
@@ -122,7 +114,7 @@ export function App(): React.JSX.Element {
           <DiagnosticsList
             diagnostics={outcome.diagnostics}
             typeCount={outcome.types.length}
-            noun={noun}
+            noun={outcome.noun}
             status={outcome.status}
           />
         </div>
