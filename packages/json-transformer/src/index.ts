@@ -12,3 +12,5 @@ export type {
 } from "./shape.js";
 
 export { buildIr } from "./builder.js";
+export { findDuplicateKeys, duplicateKeyDiagnostics } from "./duplicates.js";
+export type { DuplicateKey } from "./duplicates.js";

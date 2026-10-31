@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after phase 7 landed.
+Last updated after phase 7 and the hardening pass that followed it.
 
 ---
 
@@ -15,9 +15,9 @@ Last updated after phase 7 landed.
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 293, all passing |
+| Tests | 310, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
-| CI | build + test on Ubuntu and Windows, plus generated-output compilation |
+| CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
 ```
              ┌── TypeScript ─┐
@@ -147,6 +147,39 @@ registers *exactly* the commands the manifest declares. A manifest promising a
 command the code never registers is the classic extension bug, and it is now
 impossible to merge.
 
+### After phase 7 — the hardening pass
+
+With the feature work done, the question changed from "what else can it do" to
+"what is wrong with it that nobody has looked for". Three things came out of
+auditing it as a public repository rather than as a work in progress.
+
+**Duplicate JSON keys were silent data loss.** `JSON.parse('{"a":1,"a":2}')`
+returns `{a: 2}` and reports nothing, so a hand-edited config with a key
+pasted twice would transform cleanly and quietly lose a field. Detecting it
+means scanning the text yourself — by the time `JSON.parse` returns, the
+evidence is gone. `duplicates.ts` walks the document with a frame stack, which
+is what makes the distinctions that matter: a key is only a duplicate within
+*its own* object, a brace inside a string is not structure, and `"a"` is
+the same key as `"a"`. Reported as a warning, not an error: the document is
+still valid JSON and still transforms.
+
+**The repo had no linter, and could not have the obvious one.**
+typescript-eslint does not support TypeScript 7 (their issue #10940), and the
+whole repo targets the native port — so ESLint was blocked by a real
+incompatibility rather than a preference. oxlint runs its rules without a
+TypeScript integration, so it works today. Across ~9,000 lines it found 13
+problems, nearly all cosmetic; the one worth the exercise was a local `text`
+variable in the OpenAPI parser shadowing a module-level `text()` helper,
+making the helper unreachable inside that function. Four rules are off on
+purpose and the reasoning is recorded in `CONTRIBUTING.md`, because the config
+is JSON and cannot hold a comment. The audit behind one of them is the useful
+kind: `unicorn/no-array-sort` fires on all six `.sort()` calls, and each one
+was checked individually — every one sorts a fresh array, so the rule is wrong
+six times out of six here.
+
+**`noUnusedLocals` found nothing**, which was the point. A clean result makes
+it a ratchet rather than a cleanup.
+
 ---
 
 ## Decisions that shaped the design
@@ -218,12 +251,31 @@ state.
 
 | Item | Why | Size |
 | --- | --- | --- |
-| **ESLint config** | `lint` scripts were removed rather than left broken | small |
-| **Duplicate JSON keys** | `{"a":1,"a":2}` silently keeps the last; detecting it needs a hand-written tokenizer | medium |
 | **OpenAPI → language models** | The `components/schemas` half of an OpenAPI document fits the type graph, so the same file could also feed the five language generators. Needs a parser that can offer two IRs. | medium |
+| **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
 
 **Done since this list was written:**
 
+- ~~Duplicate JSON keys~~ — `packages/json-transformer/src/duplicates.ts`
+  now reports them as warnings (`json/duplicate-key`), through both
+  `parseJson` and `validateJson`. `JSON.parse` keeps the last value and says
+  nothing, so this was real silent data loss. It needed the hand-written
+  scanner the list predicted: a brace inside a string, an escaped quote in a
+  key, and `"a"` versus `"a"` all have to be handled, and all three are
+  tested.
+- ~~A linter~~ — oxlint, not ESLint. **The reason is worth recording:**
+  typescript-eslint does not support TypeScript 7 (their issue #10940), and
+  this repo targets the native port, so the obvious choice was unavailable
+  rather than merely unattractive. oxlint needs no TypeScript integration to
+  run its rules. It found 13 problems in ~9,000 lines; the one that mattered
+  was a local `text` variable shadowing a module-level `text()` helper in the
+  OpenAPI parser, which made the helper unreachable inside that function.
+  `pnpm lint` runs as its own CI job.
+- ~~Compiler-level dead-code detection~~ — `noUnusedLocals` and
+  `noUnusedParameters` across all three tsconfigs. Found nothing, which is
+  the useful outcome: it now cannot accumulate.
+- ~~Repository hygiene~~ — `CONTRIBUTING.md`, `SECURITY.md`, `.editorconfig`
+  and a grouped Dependabot config.
 - ~~Integer width~~ — `integer` and `long` are now distinct in the IR, decided
   once by `integerWidth`, mapping to `long` / `int64` per target. The parser
   also warns when a whole number has already lost precision in `JSON.parse`.
@@ -293,7 +345,12 @@ Stated plainly, so nobody is surprised:
 - **No syntax highlighting** in the web editor — a plain `<textarea>`, which
   keeps the bundle dependency-free. CodeMirror is the obvious upgrade if it
   starts to bite.
-- **No deployment yet.**
+- **The VS Code extension is not published.** It builds, packages and
+  installs from the `.vsix`, but reaching users through the Marketplace needs
+  a publisher account that does not exist yet.
+- **OpenAPI only produces Postman.** The `components/schemas` half of a
+  document is a type graph and could feed the language generators; no parser
+  currently offers two IRs from one source.
 
 ---
 

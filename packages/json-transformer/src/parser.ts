@@ -7,6 +7,7 @@ import type {
 import { TransformationError, offsetToPosition } from "@devbridge/core";
 
 import { buildIr } from "./builder.js";
+import { duplicateKeyDiagnostics } from "./duplicates.js";
 import type { InferenceReport, ObjectShape, Shape } from "./shape.js";
 import { inferShape, mergeShapes } from "./shape.js";
 
@@ -157,14 +158,14 @@ export function validateJson(input: string): readonly Diagnostic[] {
       ];
     }
 
-    return [];
+    return duplicateKeyDiagnostics(text);
   }
 
   if (value === null || typeof value !== "object") {
     return [rootKindDiagnostic(describeValue(value))];
   }
 
-  return [];
+  return duplicateKeyDiagnostics(text);
 }
 
 /**
@@ -252,6 +253,10 @@ export function parseJson(
   if (report.unsafeInteger) {
     diagnostics.push(UNSAFE_INTEGER);
   }
+
+  // Needs the raw text: by the time JSON.parse has returned, the duplicate
+  // and the value it discarded are both gone.
+  diagnostics.push(...duplicateKeyDiagnostics(text));
 
   const { root, context } = buildIr(shape, rootName);
 

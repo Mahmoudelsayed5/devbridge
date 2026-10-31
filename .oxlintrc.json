@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "react"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn"
+  },
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/*.vsix"],
+  "rules": {
+    "eqeqeq": ["error", "smart"],
+    "no-console": "off",
+    "no-await-in-loop": "off",
+    "no-underscore-dangle": ["error", { "allow": ["_load"] }],
+    "typescript/no-explicit-any": "warn",
+    "typescript/consistent-type-imports": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/no-array-reduce": "off",
+    "unicorn/no-null": "off",
+    "react/react-in-jsx-scope": "off",
+    "unicorn/no-array-sort": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/__tests__/**", "**/*.test.ts"],
+      "rules": {
+        "typescript/no-explicit-any": "off",
+        "typescript/no-non-null-assertion": "off",
+        "unicorn/consistent-function-scoping": "off"
+      }
+    }
+  ]
+}

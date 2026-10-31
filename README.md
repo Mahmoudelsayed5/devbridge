@@ -154,7 +154,16 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 293 tests pass.
+14 packages build clean, 310 tests pass.
+
+Linting is oxlint rather than ESLint, because typescript-eslint does not
+support TypeScript 7 and this repo targets the native port:
+
+```bash
+pnpm lint
+```
+
+[CONTRIBUTING.md](CONTRIBUTING.md) records why each disabled rule is disabled.
 
 ### Verifying generated code actually compiles
 

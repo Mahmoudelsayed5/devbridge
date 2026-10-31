@@ -17,10 +17,13 @@
     "build:web": "pnpm --filter @devbridge/web build",
     "dev:web": "pnpm --filter @devbridge/web dev",
     "build:vscode": "pnpm --filter devbridge-vscode build",
-    "package:vscode": "pnpm --filter devbridge-vscode package"
+    "package:vscode": "pnpm --filter devbridge-vscode package",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "oxlint": "^1.90.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   },
