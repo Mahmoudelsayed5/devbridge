@@ -96,7 +96,7 @@ export function typeKey(node: TypeNode): string {
     case "array":
       return `array:${typeKey(node.elementType)}`;
     case "union":
-      return `union:${[...node.types.map(typeKey)].sort().join("|")}`;
+      return `union:${node.types.map(typeKey).sort().join("|")}`;
   }
 }
 

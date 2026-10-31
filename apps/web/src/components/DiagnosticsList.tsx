@@ -39,6 +39,9 @@ export function DiagnosticsList({
 
       {[...errors, ...notes].map((diagnostic, index) => (
         <p
+          // Diagnostics carry no identity of their own, and the list is only
+          // ever replaced wholesale — never reordered — so the index is stable.
+          // oxlint-disable-next-line react/no-array-index-key
           key={`${diagnostic.code}-${index}`}
           className={`diag diag-${diagnostic.severity}`}
         >

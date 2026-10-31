@@ -303,8 +303,8 @@ export function generatePostman(
 function safeFileName(name: string): string {
   const cleaned = name
     .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[.\-]+/, "")
-    .replace(/[.\-]+$/, "");
+    .replace(/^[.-]+/, "")
+    .replace(/[.-]+$/, "");
 
   return cleaned.length === 0 ? "api" : cleaned;
 }

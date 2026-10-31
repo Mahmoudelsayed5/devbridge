@@ -85,16 +85,16 @@ function readDocument(input: string): {
   document: unknown;
   diagnostic?: Diagnostic;
 } {
-  const text = input.replace(/^﻿/, "");
+  const source = input.replace(/^﻿/, "");
 
   try {
-    return { document: JSON.parse(text) };
+    return { document: JSON.parse(source) };
   } catch {
     // Not JSON; fall through to YAML.
   }
 
   try {
-    return { document: parseYaml(text) };
+    return { document: parseYaml(source) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

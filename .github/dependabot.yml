@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  # One ecosystem entry covers the whole pnpm workspace: dependabot reads the
+  # root lockfile, which is where every package's version is actually pinned.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # The tooling moves together and is exercised by every CI run, so one PR
+      # per week is enough; a broken bump shows up as a red build immediately.
+      dev-tooling:
+        patterns:
+          - "typescript"
+          - "vitest"
+          - "oxlint"
+          - "vite"
+          - "esbuild"
+          - "@types/*"
+          - "@vitejs/*"
+          - "@vscode/*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # TypeScript 7 is a hard floor: the native port is what the repo targets,
+      # and typescript-eslint does not support it (which is why oxlint is here).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

@@ -11,6 +11,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Its own job rather than a step in `build`: linting is OS-independent and
+  # takes seconds, so running it in parallel reports style problems without
+  # waiting on the two-platform build matrix.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable corepack
+        run: corepack enable pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
   build:
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
