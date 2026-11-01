@@ -170,6 +170,23 @@ function scalarNode(
   }
 }
 
+/**
+ * True when `additionalProperties` permits extra keys, making the schema a map.
+ *
+ * The keyword has three meanings in one slot: `false` forbids extra keys,
+ * `true` or `{}` permits any, and a schema constrains their values. Only the
+ * last two are maps — `additionalProperties: false` is a *closed* object,
+ * which is the opposite claim.
+ */
+function isOpenAdditional(value: unknown): boolean {
+  return value === true || record(value) !== undefined;
+}
+
+/** True when a map's values are permitted but unconstrained. */
+function isUntypedAdditional(value: unknown): boolean {
+  return value === true || Object.keys(record(value) ?? {}).length === 0;
+}
+
 /** The declared `enum` values, or undefined when the schema has none. */
 function enumValuesOf(schema: Record<string, unknown>): unknown[] | undefined {
   const values = array(schema["enum"]);
@@ -326,6 +343,21 @@ function objectNode(
       optional: !required.has(propertyName),
     }),
   );
+
+  // Declared properties *and* additionalProperties means "these fields, plus
+  // any others" — a shape no target type can hold, since a class with named
+  // fields has nowhere to put the rest. The named fields are the ones worth
+  // having, so they win and the overflow is reported rather than dropped
+  // silently. Checked here because both the placeholder path and the inline
+  // one come through this function.
+  if (isOpenAdditional(schema["additionalProperties"])) {
+    build.diagnostics.push({
+      severity: "warning",
+      code: "openapi/object-with-extras",
+      message: `"${name}" declares both properties and additionalProperties; the declared properties are generated and the extra keys are dropped.`,
+      hint: "No target language has a type that is both a fixed set of fields and an open map.",
+    });
+  }
 
   return { kind: "object", name, properties: members };
 }
@@ -514,21 +546,26 @@ function buildBare(
     return built;
   }
 
-  // An object with no properties: either a free-form object or a map. The IR
-  // has neither, so it degrades to `unknown` — which every target renders as
-  // its own permissive type — and says so rather than pretending.
-  if (types.includes("object") || schema["additionalProperties"] !== undefined) {
-    const isMap = record(schema["additionalProperties"]) !== undefined;
+  const additional = schema["additionalProperties"];
 
+  if (isOpenAdditional(additional)) {
+    return {
+      kind: "map",
+      valueType: isUntypedAdditional(additional)
+        ? primitive("unknown")
+        : nodeFor(build, additional, `${nameHint}Value`, depth + 1),
+    };
+  }
+
+  // `type: object` with no properties and no additionalProperties (or
+  // `additionalProperties: false`, which forbids extra keys): a shape with no
+  // content to generate. It degrades to `unknown` and says so.
+  if (types.includes("object") || additional !== undefined) {
     build.diagnostics.push({
       severity: "warning",
-      code: isMap ? "openapi/map-schema" : "openapi/free-form-object",
-      message: isMap
-        ? `"${nameHint}" is a map (additionalProperties), which the type graph cannot express; it becomes an untyped value.`
-        : `"${nameHint}" is an object with no declared properties; it becomes an untyped value.`,
-      hint: isMap
-        ? "Generated code will use the target's permissive type. Declare the value type as a named schema if you need it."
-        : "Declare its properties to have them generated.",
+      code: "openapi/free-form-object",
+      message: `"${nameHint}" is an object with no declared properties; it becomes an untyped value.`,
+      hint: "Declare its properties, or give it additionalProperties to make it a map.",
     });
 
     return primitive("unknown");

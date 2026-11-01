@@ -63,6 +63,9 @@ export function toTypeScriptType(type: TypeNode): string {
     case "enum":
       return type.name;
 
+    case "map":
+      return `Record<string, ${toTypeScriptType(type.valueType)}>`;
+
     case "array": {
       const elementType = toTypeScriptType(type.elementType);
 

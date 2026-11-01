@@ -59,6 +59,27 @@ export interface ArrayNode {
 }
 
 /**
+ * An object whose *keys* are data rather than structure: a dictionary.
+ *
+ * `{"en": "Hello", "fr": "Bonjour"}` has the same JSON shape as an object
+ * type, and the difference is not visible in the value — it is the difference
+ * between a field named `en` and an arbitrary key that happens to be `en`.
+ * Only a source that declares it can tell them apart, which in practice means
+ * OpenAPI's `additionalProperties`. The JSON parser deliberately does not
+ * guess, for the same reason it does not guess enums.
+ *
+ * Structural rather than named, like {@link ArrayNode}: every target spells
+ * it inline (`Record<string, T>`, `map[string]T`, `dict[str, T]`), so there
+ * is nothing to declare and nothing to register.
+ *
+ * The key is always a string, because a JSON object key always is.
+ */
+export interface MapNode {
+  readonly kind: "map";
+  readonly valueType: TypeNode;
+}
+
+/**
  * One member of an enum: the value as it travels on the wire, and an
  * identifier-shaped name for it.
  *
@@ -108,7 +129,8 @@ export type TypeNode =
   | ObjectNode
   | ArrayNode
   | UnionNode
-  | EnumNode;
+  | EnumNode
+  | MapNode;
 
 export const PRIMITIVE_NODES: {
   readonly [K in PrimitiveType]: PrimitiveNode;
@@ -144,6 +166,8 @@ export function typeKey(node: TypeNode): string {
       return `enum:${node.name}`;
     case "array":
       return `array:${typeKey(node.elementType)}`;
+    case "map":
+      return `map:${typeKey(node.valueType)}`;
     case "union":
       return `union:${node.types.map(typeKey).sort().join("|")}`;
   }

@@ -1,5 +1,5 @@
 import type { EnumNode, ObjectNode, ObjectProperty } from "@devbridge/core";
-import { TransformationContext } from "@devbridge/core";
+import { TransformationContext, primitive } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -239,5 +239,82 @@ describe("enums", () => {
 
     expect(result).toContain("type Priority int");
     expect(result).toContain("PriorityLow Priority = 1");
+  });
+});
+
+describe("maps", () => {
+  function withMaps(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const tag: ObjectNode = {
+      kind: "object",
+      name: "Tag",
+      properties: [{ name: "label", value: primitive("string"), optional: true }],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Doc",
+      properties: [
+        {
+          name: "labels",
+          value: { kind: "map", valueType: primitive("string") },
+          optional: false,
+        },
+        {
+          name: "tagsByKey",
+          value: { kind: "map", valueType: tag },
+          optional: false,
+        },
+        {
+          name: "listsByKey",
+          value: {
+            kind: "map",
+            valueType: { kind: "array", elementType: primitive("string") },
+          },
+          optional: false,
+        },
+        {
+          name: "anything",
+          value: { kind: "map", valueType: primitive("unknown") },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(tag);
+
+    return { root, context };
+  }
+
+  it("uses map[string]T", () => {
+    const { root, context } = withMaps();
+    const result = collapse(generateGo(root, context));
+
+    expect(result).toContain("Labels map[string]string");
+    expect(result).toContain("TagsByKey map[string]Tag");
+    expect(result).toContain("ListsByKey map[string][]string");
+    expect(result).toContain("Anything map[string]any");
+  });
+
+  it("needs no pointer for an optional map, which is nil-able already", () => {
+    const context = new TransformationContext();
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Doc",
+      properties: [
+        {
+          name: "labels",
+          value: { kind: "map", valueType: primitive("string") },
+          optional: true,
+        },
+      ],
+    };
+
+    context.registerType(root);
+
+    expect(generateGo(root, context)).not.toContain("*map[");
   });
 });

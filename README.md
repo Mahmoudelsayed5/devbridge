@@ -25,7 +25,7 @@ There are three intermediate representations, and each split is deliberate.
 
 | IR | Models | Fed by | Feeds |
 | --- | --- | --- | --- |
-| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions, enums | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
+| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions, enums, maps | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
 | **relational** (`RelationalModel`) | tables, columns, keys and the relationships between them | `sql` | `mermaid`, `dbml` |
 | **api** (`ApiModel`) | endpoints: verbs, paths, parameters, bodies and responses | `openapi` | `postman` |
 
@@ -92,6 +92,35 @@ member *names*, and the attribute that would fix it
 (`JsonStringEnumMemberName`) is .NET 9. The C# generator emits a warning
 naming the specific values that will not round-trip.
 
+### Maps
+
+`{"en": "Hello", "fr": "Bonjour"}` has exactly the same JSON shape as an
+object type. The difference — a *field* named `en`, versus an arbitrary key
+that happens to be `en` — is not visible in the value at all, so again only a
+declaration can settle it: OpenAPI's `additionalProperties`.
+
+| Target | Rendering |
+| --- | --- |
+| TypeScript | `Record<string, T>` |
+| Java | `Map<String, T>`, value boxed because generics cannot hold primitives |
+| Go | `map[string]T` |
+| Python | `dict[str, T]` |
+| C# | `Dictionary<string, T>` |
+
+`MapNode` is structural rather than named, like `ArrayNode` — every target
+spells it inline, so there is nothing to declare and nothing to register. The
+key is always a string, because a JSON object key always is.
+
+`additionalProperties` carries three meanings in one slot, and they are not
+interchangeable: `false` *forbids* extra keys (a closed object, the opposite
+claim), `true` or `{}` permits any, and a schema constrains their values.
+Only the last two are maps.
+
+A schema with **both** `properties` and `additionalProperties` says "these
+fields, plus any others", which no target type can hold — a class with named
+fields has nowhere to put the rest. The named fields win, and the dropped
+overflow is reported.
+
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
 an `irKind`, and the engine refuses to pair mismatched ones with a message
@@ -117,6 +146,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 7b | Chrome extension | see docs/roadmap.md — recommended against for now |
 | 8 | OpenAPI → language models (second IR from one source) | done |
 | 9 | Enums in the IR | done |
+| 10 | Maps in the IR | done |
 
 ## Packages
 
@@ -210,7 +240,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 400 tests pass.
+14 packages build clean, 422 tests pass.
 
 Linting is oxlint rather than ESLint, because typescript-eslint does not
 support TypeScript 7 and this repo targets the native port:

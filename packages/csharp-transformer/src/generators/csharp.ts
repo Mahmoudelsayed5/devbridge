@@ -85,6 +85,10 @@ export function toCSharpType(type: TypeNode): string {
     case "enum":
       return csharpIdentifier(type.name);
 
+    case "map":
+      // A JSON object key is always a string, so the key type is fixed.
+      return `Dictionary<string, ${toCSharpType(type.valueType)}>`;
+
     case "array": {
       const { nullable, type: element } = splitNullable(type.elementType);
       const base = toCSharpType(element);
@@ -126,10 +130,16 @@ function toProperties(object: ObjectNode): CSharpProperty[] {
   });
 }
 
-/** True when the property's own type needs `System.Collections.Generic`. */
+/**
+ * True when the property's own type needs `System.Collections.Generic`.
+ *
+ * Both `List<T>` and `Dictionary<K, V>` live there, so one using covers
+ * either — unlike Java, which imports each by name.
+ */
 function needsListUsing(type: TypeNode): boolean {
   switch (type.kind) {
     case "array":
+    case "map":
       return true;
     case "union":
       return type.types.some(needsListUsing);

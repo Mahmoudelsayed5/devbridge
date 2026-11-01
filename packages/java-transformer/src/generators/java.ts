@@ -99,6 +99,10 @@ export function toJavaType(type: TypeNode, boxed = false): string {
       // Generics cannot hold primitives, so elements are always boxed.
       return `List<${toJavaType(type.elementType, true)}>`;
 
+    case "map":
+      // A JSON object key is always a string, so the key type is fixed.
+      return `Map<String, ${toJavaType(type.valueType, true)}>`;
+
     case "union": {
       const { type: nonNull } = splitNullable(type);
 
@@ -107,19 +111,52 @@ export function toJavaType(type: TypeNode, boxed = false): string {
   }
 }
 
-/** True when the property's own type needs `java.util.List`. */
-function needsListImport(type: TypeNode): boolean {
+/**
+ * The `java.util` types a property needs imported.
+ *
+ * A map of lists needs both, so this collects names rather than answering
+ * yes or no — which is why it replaced the earlier boolean.
+ */
+function javaUtilImports(type: TypeNode, into: Set<string>): void {
   switch (type.kind) {
     case "array":
-      return true;
+      into.add("List");
+      javaUtilImports(type.elementType, into);
+
+      return;
+
+    case "map":
+      into.add("Map");
+      javaUtilImports(type.valueType, into);
+
+      return;
+
     case "union":
-      return type.types.some(needsListImport);
+      for (const member of type.types) {
+        javaUtilImports(member, into);
+      }
+
+      return;
+
     // A referenced class or enum declares its own imports in its own file.
     case "object":
     case "enum":
     case "primitive":
-      return false;
+      return;
   }
+}
+
+/** The sorted `import java.util.X;` lines a set of properties needs. */
+function javaUtilImportLines(
+  properties: readonly ObjectProperty[],
+): string[] {
+  const needed = new Set<string>();
+
+  for (const property of properties) {
+    javaUtilImports(property.value, needed);
+  }
+
+  return [...needed].sort().map((name) => `import java.util.${name};`);
 }
 
 interface JavaField {
@@ -373,11 +410,7 @@ function fileHeader(
     writer.line(`package ${options.packageName};`).blank();
   }
 
-  const imports: string[] = [];
-
-  if (object.properties.some((property) => needsListImport(property.value))) {
-    imports.push("import java.util.List;");
-  }
+  const imports: string[] = javaUtilImportLines(object.properties);
 
   if (
     options.jsonAnnotations === true &&
@@ -389,7 +422,8 @@ function fileHeader(
   }
 
   if (imports.length > 0) {
-    writer.linesOf(imports).blank();
+    // Sorted so `com.*` precedes `java.*`, which is the conventional order.
+    writer.linesOf([...imports].sort()).blank();
   }
 }
 
@@ -448,13 +482,9 @@ export function generateJava(
 
   const imports: string[] = [];
 
-  const anyList = objects.some((object) =>
-    object.properties.some((property) => needsListImport(property.value)),
+  imports.push(
+    ...javaUtilImportLines(objects.flatMap((object) => object.properties)),
   );
-
-  if (anyList) {
-    imports.push("import java.util.List;");
-  }
 
   if (
     options.jsonAnnotations === true &&

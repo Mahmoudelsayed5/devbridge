@@ -244,6 +244,11 @@ schema simply states:
   so you get a real `enum` in Java, Python and C#, typed constants in Go, and
   a union of literals in TypeScript, instead of an unconstrained `string` the
   compiler cannot help you with.
+- **Are these keys fields, or data?** `{"en": "Hello", "fr": "Bonjour"}` is
+  indistinguishable from an object with two fields — until the schema says
+  `additionalProperties`. Then you get `Record<string, string>` or
+  `Map<String, String>`, rather than a class with permanent `en` and `fr`
+  fields that breaks the day someone adds Spanish.
 
 Recursive structures work too — a category tree, a comment thread — which no
 number of sample payloads can express.
@@ -334,7 +339,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-400 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+422 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 

@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after enums entered the IR.
+Last updated after maps entered the IR.
 
 ---
 
@@ -15,7 +15,7 @@ Last updated after enums entered the IR.
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 400, all passing |
+| Tests | 422, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
@@ -285,6 +285,43 @@ those are the values that make every target's name-versus-value handling real
 instead of a pass-through, and `verify:generated` compiles all four in all
 five languages.
 
+### Phase 10 — Maps in the IR
+
+The last of the two limits phase 8 recorded, and the easier one: `MapNode` is
+**structural**, like `ArrayNode`, not named like `EnumNode`. Every target
+spells a dictionary inline — `Record<string, T>`, `Map<String, T>`,
+`map[string]T`, `dict[str, T]`, `Dictionary<string, T>` — so there is nothing
+to declare, nothing to register, and no namespace to share. One node, one
+case per generator.
+
+**The interesting part is why a parser has to tell you.**
+`{"en": "Hello", "fr": "Bonjour"}` has exactly the same JSON shape as an
+object type with two string fields. The difference — a *field* named `en`,
+versus an arbitrary key that happens to be `en` — is invisible in the value.
+It is the same situation as enums one phase earlier: a sample cannot
+distinguish them, a declaration can, and guessing would be a guess about keys
+that have not appeared yet. That is now twice that the honest answer was "the
+JSON parser should not infer this", which is worth noticing as a pattern
+rather than a coincidence.
+
+**`additionalProperties` carries three meanings in one slot**, and conflating
+them would be a real bug: `false` *forbids* extra keys — a closed object, the
+opposite claim — while `true` or `{}` permits any, and a schema constrains
+their values. Only the last two are maps.
+
+Two things the change surfaced:
+
+- **A schema with both `properties` and `additionalProperties`** says "these
+  fields, plus any others", which no target type can hold. The named fields
+  win and the overflow is reported. The check lives in `objectNode` rather
+  than at the call site, because top-level schemas reach it through the
+  placeholder path used for reference cycles and would otherwise have been
+  missed — which a test caught.
+- **Java's import logic had to stop being a boolean.** It answered "does this
+  need `java.util.List`?"; a `Map<String, List<String>>` needs both, so it
+  now collects names recursively. C# needed no equivalent change, since
+  `List` and `Dictionary` share one `using`.
+
 ---
 
 ## Decisions that shaped the design
@@ -370,12 +407,12 @@ state.
 | Item | Why | Size |
 | --- | --- | --- |
 | **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
-| **Map types** | `additionalProperties` becomes an untyped value, because the IR has no map node. The enum work is the template for adding one. | medium |
 
 **Done since this list was written:**
 
 - ~~Real enums~~ — `EnumNode` is in the IR and every target declares one; see
   phase 9 below.
+- ~~Map types~~ — `MapNode` too; see phase 10.
 
 - ~~OpenAPI → language models~~ — done, and it is the most interesting change
   in this list; see the phase 8 section below for what it cost and what it
@@ -473,9 +510,9 @@ Stated plainly, so nobody is surprised:
 - **The VS Code extension is not published.** It builds, packages and
   installs from the `.vsix`, but reaching users through the Marketplace needs
   a publisher account that does not exist yet.
-- **No maps in the type graph.** `additionalProperties` becomes an untyped
-  value, because the IR has no map node. Reported as a diagnostic rather than
-  passed off silently, but the generated model is weaker than the document.
+- **An object cannot also be a map.** A schema with both `properties` and
+  `additionalProperties` loses its extra keys, because no target has a type
+  that is both a fixed set of fields and an open map. Reported, not silent.
 - **C# cannot round-trip every enum value.** `System.Text.Json` matches enum
   member *names*, so a value that is not a case-variant of an identifier —
   `"n/a"`, `"2xx"` — has nowhere to live before .NET 9's

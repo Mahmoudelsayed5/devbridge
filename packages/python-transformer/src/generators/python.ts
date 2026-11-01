@@ -95,6 +95,11 @@ function collectImports(type: TypeNode, into: Set<string>): void {
 
       return;
 
+    case "map":
+      collectImports(type.valueType, into);
+
+      return;
+
     case "union": {
       const { nullable, type: nonNull } = splitNullable(type);
 
@@ -127,6 +132,9 @@ export function toPythonType(type: TypeNode): string {
     case "object":
     case "enum":
       return pythonClassName(type.name);
+
+    case "map":
+      return `dict[str, ${toPythonType(type.valueType)}]`;
 
     case "array":
       return `list[${toPythonType(type.elementType)}]`;

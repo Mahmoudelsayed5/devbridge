@@ -541,7 +541,7 @@ describe("parseOpenApiSchemas", () => {
   });
 
   describe("what the type graph cannot express", () => {
-    it("warns that a map becomes an untyped value", () => {
+    it("reads a map as a map, with no diagnostic", () => {
       const result = parse(`
     Row:
       type: object
@@ -551,13 +551,13 @@ describe("parseOpenApiSchemas", () => {
           additionalProperties: { type: string }
 `);
 
+      // Maps have their own IR node; see maps.test.ts for the detail.
       expect(typeOf(typeNamed(result, "Row"), "labels")).toMatchObject({
-        type: "unknown",
+        kind: "map",
+        valueType: { type: "string" },
       });
 
-      expect(
-        result.diagnostics.map((diagnostic) => diagnostic.code),
-      ).toContain("openapi/map-schema");
+      expect(result.diagnostics).toEqual([]);
     });
 
     it("warns about a free-form object", () => {
