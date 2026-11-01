@@ -63,6 +63,11 @@ export function toTypeScriptType(type: TypeNode): string {
     case "enum":
       return type.name;
 
+    case "literal":
+      // A literal type is what makes a discriminated union narrow in a
+      // `switch`, which is the whole point of carrying the tag.
+      return JSON.stringify(type.value);
+
     case "map":
       return `Record<string, ${toTypeScriptType(type.valueType)}>`;
 

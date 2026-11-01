@@ -119,9 +119,51 @@ export interface EnumNode {
   readonly members: readonly EnumMember[];
 }
 
+/**
+ * A single permitted value, as a type.
+ *
+ * Distinct from a one-member {@link EnumNode}: an enum is a named type a
+ * target declares, where a literal is structural and appears inline. It
+ * exists mainly to carry a discriminator tag — `petType: "cat"` — which is
+ * what lets a target narrow a union.
+ */
+export interface LiteralNode {
+  readonly kind: "literal";
+  readonly value: string;
+}
+
+/** One branch of a discriminated union: a tag value and the type it selects. */
+export interface DiscriminatorMapping {
+  /** The value of the discriminator property, for example `cat`. */
+  readonly value: string;
+  /** The name of the object type that value selects. */
+  readonly typeName: string;
+}
+
+/**
+ * How to tell a union's branches apart by looking at one property.
+ *
+ * A bare union of objects is awkward in every target: given `Cat | Dog` there
+ * is no way to know which you have without inspecting fields. A discriminator
+ * says that one property carries the answer, which turns the union into
+ * something a `switch` can narrow.
+ *
+ * Carried on the union rather than implied, because the parser is the only
+ * place with enough information to work it out — OpenAPI's `mapping` is
+ * optional, and when absent the tag value is the *schema name*, which the
+ * generators never see.
+ */
+export interface Discriminator {
+  /** The property whose value identifies the branch, for example `petType`. */
+  readonly propertyName: string;
+  readonly mapping: readonly DiscriminatorMapping[];
+}
+
 export interface UnionNode {
   readonly kind: "union";
   readonly types: readonly TypeNode[];
+  /** Present when the source declared how to tell the branches apart. */
+  readonly discriminator?: Discriminator;
 }
 
 export type TypeNode =
@@ -130,7 +172,8 @@ export type TypeNode =
   | ArrayNode
   | UnionNode
   | EnumNode
-  | MapNode;
+  | MapNode
+  | LiteralNode;
 
 export const PRIMITIVE_NODES: {
   readonly [K in PrimitiveType]: PrimitiveNode;
@@ -168,6 +211,8 @@ export function typeKey(node: TypeNode): string {
       return `array:${typeKey(node.elementType)}`;
     case "map":
       return `map:${typeKey(node.valueType)}`;
+    case "literal":
+      return `literal:${node.value}`;
     case "union":
       return `union:${node.types.map(typeKey).sort().join("|")}`;
   }
@@ -225,6 +270,71 @@ export function enumMembersFrom(
   });
 
   return { baseType, members };
+}
+
+/**
+ * Every discriminated union reachable from a set of object types.
+ *
+ * Three of the five targets cannot express one — they have no sum type to
+ * hang it on — and each needs to say so. Walking the graph is shared here
+ * rather than written three times, and the `seen` set keeps a reference
+ * cycle from looping.
+ */
+export function discriminatedUnions(
+  types: Iterable<ObjectNode>,
+): Discriminator[] {
+  const found: Discriminator[] = [];
+  const seen = new Set<string>();
+
+  const walk = (node: TypeNode): void => {
+    switch (node.kind) {
+      case "union":
+        if (node.discriminator !== undefined) {
+          found.push(node.discriminator);
+        }
+
+        for (const member of node.types) {
+          walk(member);
+        }
+
+        return;
+
+      case "object": {
+        if (seen.has(node.name)) {
+          return;
+        }
+
+        seen.add(node.name);
+
+        for (const property of node.properties) {
+          walk(property.value);
+        }
+
+        return;
+      }
+
+      case "array":
+        walk(node.elementType);
+
+        return;
+
+      case "map":
+        walk(node.valueType);
+
+        return;
+
+      case "primitive":
+      case "enum":
+      case "literal":
+        return;
+    }
+  };
+
+  for (const type of types) {
+    walk(type);
+  }
+
+  return found;
 }
 
 /** Returns the union members of a node, or the node itself when it is not a union. */

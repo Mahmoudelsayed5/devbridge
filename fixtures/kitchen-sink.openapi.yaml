@@ -146,7 +146,8 @@ components:
       properties:
         owner: { $ref: "#/components/schemas/TreeNode" }
 
-    # A union of two object branches.
+    # A discriminated union. The tag narrows to a literal in the targets that
+    # can express one, and is reported as unsupported in those that cannot.
     Payment:
       type: object
       properties:
@@ -154,15 +155,48 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/CardPayment" }
             - { $ref: "#/components/schemas/BankPayment" }
+          discriminator:
+            propertyName: kind
+            mapping:
+              card: "#/components/schemas/CardPayment"
+              bank: "#/components/schemas/BankPayment"
 
     CardPayment:
       type: object
-      required: [last4]
+      required: [kind, last4]
       properties:
+        kind: { type: string }
         last4: { type: string }
 
     BankPayment:
       type: object
-      required: [iban]
+      required: [kind, iban]
       properties:
+        kind: { type: string }
         iban: { type: string }
+
+    # The implicit form: no mapping, so each branch is tagged with its own
+    # schema name.
+    Notification:
+      type: object
+      properties:
+        channel:
+          oneOf:
+            - { $ref: "#/components/schemas/EmailChannel" }
+            - { $ref: "#/components/schemas/SmsChannel" }
+          discriminator:
+            propertyName: channelType
+
+    EmailChannel:
+      type: object
+      required: [channelType, address]
+      properties:
+        channelType: { type: string }
+        address: { type: string, format: email }
+
+    SmsChannel:
+      type: object
+      required: [channelType, number]
+      properties:
+        channelType: { type: string }
+        number: { type: string }

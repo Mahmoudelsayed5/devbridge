@@ -100,6 +100,11 @@ function collectImports(type: TypeNode, into: Set<string>): void {
 
       return;
 
+    case "literal":
+      into.add("Literal");
+
+      return;
+
     case "union": {
       const { nullable, type: nonNull } = splitNullable(type);
 
@@ -132,6 +137,9 @@ export function toPythonType(type: TypeNode): string {
     case "object":
     case "enum":
       return pythonClassName(type.name);
+
+    case "literal":
+      return `Literal[${JSON.stringify(type.value)}]`;
 
     case "map":
       return `dict[str, ${toPythonType(type.valueType)}]`;

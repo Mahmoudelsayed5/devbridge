@@ -318,3 +318,73 @@ describe("maps", () => {
     expect(generateGo(root, context)).not.toContain("*map[");
   });
 });
+
+describe("discriminated unions", () => {
+  function withDiscriminator(): {
+    root: ObjectNode;
+    context: TransformationContext;
+  } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "cat" }, optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "dog" }, optional: false },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Shelter",
+      properties: [
+        {
+          name: "resident",
+          value: {
+            kind: "union",
+            types: [cat, dog],
+            discriminator: {
+              propertyName: "petType",
+              mapping: [
+                { value: "cat", typeName: "Cat" },
+                { value: "dog", typeName: "Dog" },
+              ],
+            },
+          },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root, context };
+  }
+
+  it("emits the tag as a plain string, Go having no literal types", () => {
+    const { root, context } = withDiscriminator();
+
+    expect(collapse(generateGo(root, context))).toContain("PetType string");
+  });
+
+  it("reports that the union is emitted untyped", () => {
+    const { root, context } = withDiscriminator();
+    const diagnostics = goGenerator.generate(root, context).diagnostics ?? [];
+
+    expect(diagnostics.map((d) => d.code)).toEqual([
+      "go/discriminator-unsupported",
+    ]);
+
+    expect(diagnostics[0]?.message).toContain("petType");
+  });
+});
