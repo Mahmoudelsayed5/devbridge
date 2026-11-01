@@ -217,7 +217,12 @@ export function transform(request: TransformRequest): TransformResult {
       files: generated.files,
       preview: generated.preview,
       diagnostics: [...parsed.diagnostics, ...(generated.diagnostics ?? [])],
-      names: parsed.context.getTypes().map((type) => type.name),
+      // Enums are named types the generators declare, so they belong in the
+      // count the surfaces show. Listed first, matching emission order.
+      names: [
+        ...parsed.context.getEnums().map((node) => node.name),
+        ...parsed.context.getTypes().map((type) => type.name),
+      ],
     };
   }
 

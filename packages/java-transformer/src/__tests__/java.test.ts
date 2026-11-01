@@ -1,3 +1,5 @@
+import type { EnumNode, ObjectNode } from "@devbridge/core";
+import { TransformationContext } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -211,5 +213,93 @@ describe("integer width", () => {
 
   it("uses List<Long> for a long array", () => {
     expect(preview({ ids: [5000000000] })).toContain("private List<Long> ids;");
+  });
+});
+
+describe("enums", () => {
+  /** One string enum, one integer enum, and an object using both. */
+  function withEnums(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const status: EnumNode = {
+      kind: "enum",
+      name: "Status",
+      baseType: "string",
+      members: [
+        { name: "Available", value: "available" },
+        { name: "SoldOut", value: "sold out" },
+      ],
+    };
+
+    const priority: EnumNode = {
+      kind: "enum",
+      name: "Priority",
+      baseType: "integer",
+      members: [
+        { name: "Low", value: 1 },
+        { name: "High", value: 9 },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [{ name: "status", value: status, optional: false }],
+    };
+
+    context.registerEnum(status);
+    context.registerEnum(priority);
+    context.registerType(root);
+
+    return { root, context };
+  }
+
+  it("gives each constant the value it came from", () => {
+    const { root, context } = withEnums();
+    const emitted = generateJavaFiles(root, context);
+
+    // A bare constant would lose the mapping: Java constants are SHOUTY and
+    // the wire value usually is not.
+    expect(emitted["Status.java"]).toContain('AVAILABLE("available"),');
+    expect(emitted["Status.java"]).toContain('SOLD_OUT("sold out");');
+    expect(emitted["Status.java"]).toContain("private final String value;");
+  });
+
+  it("uses int for an integer enum", () => {
+    const { root, context } = withEnums();
+    const emitted = generateJavaFiles(root, context);
+
+    expect(emitted["Priority.java"]).toContain("LOW(1),");
+    expect(emitted["Priority.java"]).toContain("private final int value;");
+    expect(emitted["Priority.java"]).toContain("candidate.value == value");
+  });
+
+  it("compares strings with equals, not ==", () => {
+    const { root, context } = withEnums();
+    const emitted = generateJavaFiles(root, context);
+
+    expect(emitted["Status.java"]).toContain("candidate.value.equals(value)");
+  });
+
+  it("writes each enum to its own file, as Java requires", () => {
+    const { root, context } = withEnums();
+    const emitted = generateJavaFiles(root, context);
+
+    expect(Object.keys(emitted).sort()).toEqual([
+      "Pet.java",
+      "Priority.java",
+      "Status.java",
+    ]);
+  });
+
+  it("adds the Jackson hooks only when annotations are on", () => {
+    const { root, context } = withEnums();
+
+    expect(generateJavaFiles(root, context, { jsonAnnotations: true })["Status.java"])
+      .toContain("@JsonValue");
+
+    expect(generateJavaFiles(root, context)["Status.java"]).not.toContain(
+      "@JsonValue",
+    );
   });
 });

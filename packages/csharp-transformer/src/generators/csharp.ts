@@ -1,4 +1,6 @@
 import type {
+  Diagnostic,
+  EnumNode,
   GenerateResult,
   GeneratedFile,
   GeneratorOptions,
@@ -80,6 +82,7 @@ export function toCSharpType(type: TypeNode): string {
       return primitiveToCSharp(type.type);
 
     case "object":
+    case "enum":
       return csharpIdentifier(type.name);
 
     case "array": {
@@ -130,8 +133,9 @@ function needsListUsing(type: TypeNode): boolean {
       return true;
     case "union":
       return type.types.some(needsListUsing);
-    // A referenced class declares its own usings in its own file.
+    // A referenced class or enum declares its own usings in its own file.
     case "object":
+    case "enum":
     case "primitive":
       return false;
   }
@@ -139,6 +143,7 @@ function needsListUsing(type: TypeNode): boolean {
 
 function usingsFor(
   objects: readonly ObjectNode[],
+  enums: readonly EnumNode[],
   options: CSharpOptions,
 ): string[] {
   const usings: string[] = [];
@@ -162,7 +167,100 @@ function usingsFor(
     usings.push("using System.Text.Json.Serialization;");
   }
 
+  // A string enum carries [JsonConverter], which lives in the same using.
+  const enumNeedsUsing =
+    (options.jsonAnnotations ?? true) &&
+    enums.some((node) => node.baseType === "string");
+
+  if (enumNeedsUsing && !usings.includes("using System.Text.Json.Serialization;")) {
+    usings.push("using System.Text.Json.Serialization;");
+  }
+
   return usings;
+}
+
+/**
+ * Values that no C# member name can reproduce on the wire.
+ *
+ * `JsonStringEnumConverter` serialises the *member name* and parses it back
+ * case-insensitively, so a value differing from its name only by casing —
+ * `"available"` against `Available`, the overwhelmingly common case — reads
+ * correctly and writes in the enum's own casing. A value that is not an
+ * identifier at all (`"n/a"`, `"2xx"`, `""`) has no such relationship, and
+ * nothing short of .NET 9's `JsonStringEnumMemberName` can express it. Those
+ * are reported rather than silently mis-serialised.
+ */
+function unmappableValues(node: EnumNode): string[] {
+  if (node.baseType === "integer") {
+    return [];
+  }
+
+  return node.members
+    .filter(
+      (member) =>
+        typeof member.value === "string" &&
+        member.value.toLowerCase() !== member.name.toLowerCase(),
+    )
+    .map((member) => String(member.value));
+}
+
+function writeEnum(
+  node: EnumNode,
+  writer: CodeWriter,
+  options: CSharpOptions,
+): void {
+  const annotate = options.jsonAnnotations ?? true;
+  const allocator = new NameAllocator([csharpIdentifier(node.name)]);
+
+  // Numeric enums need no converter: System.Text.Json writes the underlying
+  // value by default, which is exactly the declared one.
+  if (annotate && node.baseType === "string") {
+    writer.line("[JsonConverter(typeof(JsonStringEnumConverter))]");
+  }
+
+  writer.line(`public enum ${csharpIdentifier(node.name)}`);
+  writer.line("{");
+  writer.indented(() => {
+    node.members.forEach((member, index) => {
+      const name = allocator.allocate(csharpIdentifier(member.name));
+      const last = index === node.members.length - 1;
+
+      // An integer enum carries its declared value; a string one is
+      // positional, its value coming from the converter above.
+      const assignment =
+        node.baseType === "integer" ? ` = ${member.value}` : "";
+
+      writer.line(`${name}${assignment}${last ? "" : ","}`);
+    });
+  });
+  writer.line("}");
+}
+
+/** Warns about enum values C# cannot round-trip. See {@link unmappableValues}. */
+function enumDiagnostics(
+  enums: readonly EnumNode[],
+  options: CSharpOptions,
+): Diagnostic[] {
+  if ((options.jsonAnnotations ?? true) === false) {
+    return [];
+  }
+
+  return enums.flatMap((node) => {
+    const values = unmappableValues(node);
+
+    if (values.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        severity: "warning" as const,
+        code: "csharp/enum-value-unmappable",
+        message: `"${node.name}" has ${values.length === 1 ? "a value" : "values"} that C# cannot express as a member name: ${values.map((value) => JSON.stringify(value)).join(", ")}.`,
+        hint: "System.Text.Json matches enum member names, so these will not round-trip. .NET 9's JsonStringEnumMemberName, or a hand-written converter, is needed for them.",
+      },
+    ];
+  });
 }
 
 function writeType(
@@ -219,6 +317,7 @@ function objectsOf(
 
 function writePreamble(
   objects: readonly ObjectNode[],
+  enums: readonly EnumNode[],
   writer: CodeWriter,
   options: CSharpOptions,
 ): void {
@@ -226,7 +325,7 @@ function writePreamble(
     writer.line(commentBlock(GENERATED_HEADER)).blank();
   }
 
-  const usings = usingsFor(objects, options);
+  const usings = usingsFor(objects, enums, options);
 
   if (usings.length > 0) {
     writer.linesOf(usings).blank();
@@ -243,16 +342,22 @@ export function generateCSharp(
   options: CSharpOptions = {},
 ): string {
   const objects = objectsOf(root, context);
+  const enums = context.getEnums();
   const writer = new CodeWriter(options.indent ?? "    ");
 
-  writePreamble(objects, writer, options);
+  writePreamble(objects, enums, writer, options);
 
-  objects.forEach((object, index) => {
+  const declarations = [
+    ...enums.map((node) => () => writeEnum(node, writer, options)),
+    ...objects.map((object) => () => writeType(object, writer, options)),
+  ];
+
+  declarations.forEach((emit, index) => {
     if (index > 0) {
       writer.blank();
     }
 
-    writeType(object, writer, options);
+    emit();
   });
 
   return writer.toString();
@@ -264,16 +369,26 @@ export function generateCSharpFiles(
   context: TransformationContext,
   options: CSharpOptions = {},
 ): Record<string, string> {
+  // An enum is a top-level type in C#, so it gets its own file like a class.
+  const enumEntries = context.getEnums().map((node): [string, string] => {
+    const writer = new CodeWriter(options.indent ?? "    ");
+
+    writePreamble([], [node], writer, options);
+    writeEnum(node, writer, options);
+
+    return [`${csharpIdentifier(node.name)}.cs`, writer.toString()];
+  });
+
   const entries = objectsOf(root, context).map((object): [string, string] => {
     const writer = new CodeWriter(options.indent ?? "    ");
 
-    writePreamble([object], writer, options);
+    writePreamble([object], [], writer, options);
     writeType(object, writer, options);
 
     return [`${csharpIdentifier(object.name)}.cs`, writer.toString()];
   });
 
-  return Object.fromEntries(entries);
+  return Object.fromEntries([...enumEntries, ...entries]);
 }
 
 export const cSharpGenerator: TargetGenerator = {
@@ -293,9 +408,12 @@ export const cSharpGenerator: TargetGenerator = {
       generateCSharpFiles(root, context, cSharpOptions),
     ).map(([path, content]) => ({ path, content }));
 
+    const diagnostics = enumDiagnostics(context.getEnums(), cSharpOptions);
+
     return {
       files,
       preview: generateCSharp(root, context, cSharpOptions),
+      ...(diagnostics.length === 0 ? {} : { diagnostics }),
     };
   },
 };

@@ -1,3 +1,5 @@
+import type { EnumNode, ObjectNode } from "@devbridge/core";
+import { TransformationContext } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -149,5 +151,100 @@ describe("integer width", () => {
 
   it("makes an optional long nullable", () => {
     expect(generate({ rows: [{ id: 5000000000 }, {}] })).toContain("long?");
+  });
+});
+
+describe("enums", () => {
+  /** One string enum, one integer enum, and an object using both. */
+  function withEnums(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const status: EnumNode = {
+      kind: "enum",
+      name: "Status",
+      baseType: "string",
+      members: [
+        { name: "Available", value: "available" },
+        { name: "SoldOut", value: "sold out" },
+      ],
+    };
+
+    const priority: EnumNode = {
+      kind: "enum",
+      name: "Priority",
+      baseType: "integer",
+      members: [
+        { name: "Low", value: 1 },
+        { name: "High", value: 9 },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [{ name: "status", value: status, optional: false }],
+    };
+
+    context.registerEnum(status);
+    context.registerEnum(priority);
+    context.registerType(root);
+
+    return { root, context };
+  }
+
+  it("declares a real enum with the converter attribute", () => {
+    const { root, context } = withEnums();
+    const result = generateCSharp(root, context);
+
+    expect(result).toContain("[JsonConverter(typeof(JsonStringEnumConverter))]");
+    expect(result).toContain("public enum Status");
+    expect(result).toContain("Available,");
+  });
+
+  it("assigns declared values to an integer enum and skips the converter", () => {
+    const { root, context } = withEnums();
+    const files = generateCSharpFiles(root, context);
+
+    // System.Text.Json already writes the underlying number.
+    expect(files["Priority.cs"]).toContain("Low = 1,");
+    expect(files["Priority.cs"]).not.toContain("JsonStringEnumConverter");
+  });
+
+  it("writes each enum to its own file", () => {
+    const { root, context } = withEnums();
+
+    expect(Object.keys(generateCSharpFiles(root, context)).sort()).toEqual([
+      "Pet.cs",
+      "Priority.cs",
+      "Status.cs",
+    ]);
+  });
+
+  it("warns about values C# cannot round-trip, and only those", () => {
+    const context = new TransformationContext();
+    const root: ObjectNode = { kind: "object", name: "R", properties: [] };
+
+    context.registerEnum({
+      kind: "enum",
+      name: "Grade",
+      baseType: "string",
+      members: [
+        // Differs only by case, which the converter matches on read.
+        { name: "Available", value: "available" },
+        // Not an identifier at all; nothing before .NET 9 can express it.
+        { name: "NA", value: "n/a" },
+      ],
+    });
+
+    context.registerType(root);
+
+    const diagnostics = cSharpGenerator.generate(root, context).diagnostics ?? [];
+
+    expect(diagnostics.map((d) => d.code)).toEqual([
+      "csharp/enum-value-unmappable",
+    ]);
+
+    expect(diagnostics[0]?.message).toContain('"n/a"');
+    expect(diagnostics[0]?.message).not.toContain('"available"');
   });
 });

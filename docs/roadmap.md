@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after OpenAPI gained a second IR.
+Last updated after enums entered the IR.
 
 ---
 
@@ -15,7 +15,7 @@ Last updated after OpenAPI gained a second IR.
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 356, all passing |
+| Tests | 400, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
@@ -229,11 +229,61 @@ values. The generator now does its own cycle detection.
 real `go vet` over the output, not by reading the generator. The fixture now
 carries a mutual reference permanently, so the case cannot regress quietly.
 
-Two honest limits came out of it, both the same shape — the IR has no node for
-the construct, so it degrades to an untyped value and says so in a diagnostic
-rather than pretending: an `enum` becomes its base type, and a map
-(`additionalProperties`) becomes `unknown`. Both are in the "what's next"
-list above.
+Two honest limits came out of it, both the same shape — the IR had no node for
+the construct, so it degraded to an untyped value and said so in a diagnostic
+rather than pretending: an `enum` became its base type, and a map
+(`additionalProperties`) became `unknown`. The first of those became phase 9;
+the second is still open.
+
+### Phase 9 — Enums in the IR
+
+`enum` is the fourth thing a schema states that a sample cannot. Seeing
+`"available"` in a payload tells you a field is a string; `enum: [available,
+pending, sold]` tells you the set is **closed**, which is a stronger claim and
+one that changes the generated code. Inferring it from samples would be a
+guess about values that have not happened yet, so the JSON parser still does
+not, and `EnumNode` is reached from OpenAPI alone.
+
+**The IR change is one node and one map.** `EnumNode` joins the `TypeNode`
+union, and `TransformationContext` gains a second map beside its object types.
+They are kept apart because every generator wants to emit enums before the
+structures that refer to them — but they share one *name* space, since
+`enum Status` and `class Status` collide in all five languages, so
+`registerEnum` refuses a name an object holds rather than letting that reach a
+compiler.
+
+**The design decision worth keeping is separating the member's name from its
+value.** They are rarely the same thing. `"n/a"`, `"2xx"` and `""` are not
+identifiers anywhere, and even an ordinary `"available"` is written
+`AVAILABLE` in Java and `Available` in C#. So the IR stores a neutral
+PascalCase name that each generator re-cases through the shared naming
+helpers, alongside the value, preserved byte for byte. Collapsing the two
+would have forced every generator to re-derive a mapping that only the parser
+had the information to make.
+
+**Each target renders the idea the way its language spells it**, which is
+where most of the work went:
+
+| Target | Rendering, and why |
+| --- | --- |
+| TypeScript | a union of literal types. The members *are* the wire values, it narrows in a `switch`, and it has no runtime footprint — a TS `enum` is a runtime object whose members are not the values. `enumStyle: "enum"` is there for those who want the nominal form. |
+| Java | an `enum` whose constants carry their value, with `getValue()` / `fromValue()`. A bare constant would lose the mapping entirely, since Java constants are `SHOUTY_CASE`. |
+| Go | a defined type plus typed constants — Go has no enum keyword, and this is what its own standard library does. Constants are prefixed because Go constants are package scoped. |
+| Python | `class Status(str, Enum)`. The `str` base is not decoration: a plain `Enum` member is not equal to its value and `json.dumps` refuses to serialise it. |
+| C# | `enum` with `[JsonConverter(typeof(JsonStringEnumConverter))]`. |
+
+**C# is the one that cannot be made fully correct**, and that is reported
+rather than hidden. `System.Text.Json` matches enum member *names*; a value
+that is not a case-variant of an identifier has nowhere to live until .NET 9's
+`JsonStringEnumMemberName`, which CI's .NET 8 does not have. The generator
+emits a warning naming the exact values that will not round-trip — the same
+"failure is data" rule the parsers follow, applied for the first time to a
+generator.
+
+The fixture gained `["A+", "n/a", "2xx", "kebab-case"]` precisely because
+those are the values that make every target's name-versus-value handling real
+instead of a pass-through, and `verify:generated` compiles all four in all
+five languages.
 
 ---
 
@@ -320,10 +370,12 @@ state.
 | Item | Why | Size |
 | --- | --- | --- |
 | **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
-| **Real enums** | An OpenAPI `enum` currently becomes its base type, because the IR has no enum node. Adding one would improve every language target. | medium |
-| **Map types** | `additionalProperties` becomes an untyped value for the same reason — the IR has no map node. | medium |
+| **Map types** | `additionalProperties` becomes an untyped value, because the IR has no map node. The enum work is the template for adding one. | medium |
 
 **Done since this list was written:**
+
+- ~~Real enums~~ — `EnumNode` is in the IR and every target declares one; see
+  phase 9 below.
 
 - ~~OpenAPI → language models~~ — done, and it is the most interesting change
   in this list; see the phase 8 section below for what it cost and what it
@@ -421,10 +473,16 @@ Stated plainly, so nobody is surprised:
 - **The VS Code extension is not published.** It builds, packages and
   installs from the `.vsix`, but reaching users through the Marketplace needs
   a publisher account that does not exist yet.
-- **No enums and no maps in the type graph.** An OpenAPI `enum` becomes its
-  base type and `additionalProperties` becomes an untyped value, because the
-  IR has a node for neither. Both are reported as diagnostics rather than
-  passed off silently, but the generated models are weaker than the document.
+- **No maps in the type graph.** `additionalProperties` becomes an untyped
+  value, because the IR has no map node. Reported as a diagnostic rather than
+  passed off silently, but the generated model is weaker than the document.
+- **C# cannot round-trip every enum value.** `System.Text.Json` matches enum
+  member *names*, so a value that is not a case-variant of an identifier —
+  `"n/a"`, `"2xx"` — has nowhere to live before .NET 9's
+  `JsonStringEnumMemberName`. The generator warns, naming the values.
+- **A document of nothing but enums is refused.** `ParseResult.root` is an
+  `ObjectNode`, so a schemas file with no object type has no honest root to
+  return. Rare, but real for a shared enums file.
 - **A discriminated union loses its discriminator.** `oneOf` becomes a plain
   union; OpenAPI's `discriminator` has nowhere to go.
 

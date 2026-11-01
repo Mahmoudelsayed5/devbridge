@@ -1,3 +1,5 @@
+import type { EnumNode, ObjectNode } from "@devbridge/core";
+import { TransformationContext } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -171,5 +173,100 @@ describe("generateTypeScript", () => {
 describe("integer width", () => {
   it("still emits number, because TypeScript has one numeric type", () => {
     expect(generate({ bigId: 1234567890123 })).toContain("bigId: number;");
+  });
+});
+
+describe("enums", () => {
+/** Builds a context holding one string enum, one integer enum and a user. */
+function withEnums(): { root: ObjectNode; context: TransformationContext } {
+  const context = new TransformationContext();
+
+  const status: EnumNode = {
+    kind: "enum",
+    name: "Status",
+    baseType: "string",
+    members: [
+      { name: "Available", value: "available" },
+      { name: "SoldOut", value: "sold out" },
+    ],
+  };
+
+  const priority: EnumNode = {
+    kind: "enum",
+    name: "Priority",
+    baseType: "integer",
+    members: [
+      { name: "Low", value: 1 },
+      { name: "High", value: 9 },
+    ],
+  };
+
+  const root: ObjectNode = {
+    kind: "object",
+    name: "Pet",
+    properties: [
+      { name: "status", value: status, optional: false },
+      { name: "priority", value: priority, optional: true },
+    ],
+  };
+
+  context.registerEnum(status);
+  context.registerEnum(priority);
+  context.registerType(root);
+
+  return { root, context };
+}
+
+  it("declares a union of literal values by default", () => {
+    const { root, context } = withEnums();
+    const result = generateTypeScript(root, context);
+
+    // The members are the wire values, so no mapping is needed either way.
+    expect(result).toContain('export type Status = "available" | "sold out";');
+    expect(result).toContain("export type Priority = 1 | 9;");
+  });
+
+  it("declares a nominal enum when asked", () => {
+    const { root, context } = withEnums();
+    const result = generateTypeScript(root, context, { enumStyle: "enum" });
+
+    expect(result).toContain("export enum Status {");
+    expect(result).toContain('Available = "available",');
+  });
+
+  it("emits enums before the types that use them", () => {
+    const { root, context } = withEnums();
+    const result = generateTypeScript(root, context);
+
+    expect(result.indexOf("type Status")).toBeLessThan(
+      result.indexOf("interface Pet"),
+    );
+  });
+
+  it("refers to the enum by name from the property", () => {
+    const { root, context } = withEnums();
+
+    expect(generateTypeScript(root, context)).toContain("status: Status;");
+  });
+
+  it("wraps a long union the way a formatter would", () => {
+    const context = new TransformationContext();
+    const root: ObjectNode = { kind: "object", name: "R", properties: [] };
+
+    context.registerEnum({
+      kind: "enum",
+      name: "Long",
+      baseType: "string",
+      members: Array.from({ length: 8 }, (_, index) => ({
+        name: `Member${index}`,
+        value: `a-fairly-long-value-${index}`,
+      })),
+    });
+
+    context.registerType(root);
+
+    expect(generateTypeScript(root, context)).toContain(
+      'export type Long =\n  | "a-fairly-long-value-0"',
+    );
   });
 });

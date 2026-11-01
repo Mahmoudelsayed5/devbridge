@@ -1,3 +1,5 @@
+import type { EnumNode, ObjectNode } from "@devbridge/core";
+import { TransformationContext } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -117,5 +119,68 @@ describe("generatePython", () => {
 describe("integer width", () => {
   it("uses int, because Python integers are arbitrary precision", () => {
     expect(generate({ bigId: 1234567890123 })).toContain("bigId: int");
+  });
+});
+
+describe("enums", () => {
+  /** One string enum, one integer enum, and an object using both. */
+  function withEnums(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const status: EnumNode = {
+      kind: "enum",
+      name: "Status",
+      baseType: "string",
+      members: [
+        { name: "Available", value: "available" },
+        { name: "SoldOut", value: "sold out" },
+      ],
+    };
+
+    const priority: EnumNode = {
+      kind: "enum",
+      name: "Priority",
+      baseType: "integer",
+      members: [
+        { name: "Low", value: 1 },
+        { name: "High", value: 9 },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [{ name: "status", value: status, optional: false }],
+    };
+
+    context.registerEnum(status);
+    context.registerEnum(priority);
+    context.registerType(root);
+
+    return { root, context };
+  }
+
+  it("subclasses str so the member is its value", () => {
+    const { root, context } = withEnums();
+    const result = generatePython(root, context);
+
+    // A plain Enum member is not equal to its value and will not serialise.
+    expect(result).toContain("class Status(str, Enum):");
+    expect(result).toContain('AVAILABLE = "available"');
+    expect(result).toContain('SOLD_OUT = "sold out"');
+  });
+
+  it("subclasses int for an integer enum", () => {
+    const { root, context } = withEnums();
+
+    expect(generatePython(root, context)).toContain("class Priority(int, Enum):");
+  });
+
+  it("imports Enum only when there is one", () => {
+    const { root, context } = withEnums();
+
+    expect(generatePython(root, context)).toContain("from enum import Enum");
+    expect(generatePython({ kind: "object", name: "X", properties: [] }, new TransformationContext()))
+      .not.toContain("from enum import Enum");
   });
 });

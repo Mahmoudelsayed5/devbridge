@@ -1,4 +1,5 @@
 import type {
+  EnumNode,
   GenerateResult,
   GeneratedFile,
   GeneratorOptions,
@@ -18,6 +19,7 @@ import {
   splitNullable,
   toCamelCase,
   toPascalCase,
+  toSnakeCase,
 } from "@devbridge/core";
 
 export type JavaFiles = Record<string, string>;
@@ -90,6 +92,7 @@ export function toJavaType(type: TypeNode, boxed = false): string {
       return primitiveToJava(type.type, boxed);
 
     case "object":
+    case "enum":
       return javaClassName(type.name);
 
     case "array":
@@ -111,8 +114,9 @@ function needsListImport(type: TypeNode): boolean {
       return true;
     case "union":
       return type.types.some(needsListImport);
-    // A referenced class declares its own imports in its own file.
+    // A referenced class or enum declares its own imports in its own file.
     case "object":
+    case "enum":
     case "primitive":
       return false;
   }
@@ -203,6 +207,118 @@ function writeClass(
   );
 }
 
+/** A wire value as Java source. */
+function literal(value: string | number): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+/** `available` -> `AVAILABLE`, which is how Java spells a constant. */
+function javaConstantName(value: string): string {
+  return sanitizeIdentifier(toSnakeCase(value).toUpperCase(), {
+    fallback: "VALUE",
+    keywords: JAVA_KEYWORDS,
+  });
+}
+
+/**
+ * Writes a Java enum that remembers the value it came from.
+ *
+ * A bare `enum Status { AVAILABLE }` loses information: Java constants are
+ * `SHOUTY_CASE` and the wire value is usually not, so the mapping back to
+ * `"available"` would exist nowhere. Each constant therefore carries its
+ * value, with a `getValue()` to read it and a `fromValue` to parse one —
+ * which is what a careful Java author writes for exactly this reason, and
+ * what Jackson's `@JsonValue` / `@JsonCreator` hook onto when annotations are
+ * switched on.
+ */
+function writeEnum(
+  node: EnumNode,
+  writer: CodeWriter,
+  options: JavaOptions,
+  isPublic: boolean,
+): void {
+  const annotate = options.jsonAnnotations === true;
+  const valueType = node.baseType === "integer" ? "int" : "String";
+  const name = javaClassName(node.name);
+
+  writer.block(
+    `${isPublic ? "public " : ""}enum ${name} {`,
+    () => {
+      node.members.forEach((member, index) => {
+        const last = index === node.members.length - 1;
+
+        writer.line(
+          `${javaConstantName(member.name)}(${literal(member.value)})${last ? ";" : ","}`,
+        );
+      });
+
+      writer.blank();
+      writer.line(`private final ${valueType} value;`).blank();
+
+      writer.block(
+        `${name}(${valueType} value) {`,
+        () => {
+          writer.line("this.value = value;");
+        },
+        "}",
+      );
+
+      writer.blank();
+
+      if (annotate) {
+        writer.line("@JsonValue");
+      }
+
+      writer.block(
+        `public ${valueType} getValue() {`,
+        () => {
+          writer.line("return this.value;");
+        },
+        "}",
+      );
+
+      writer.blank();
+
+      if (annotate) {
+        writer.line("@JsonCreator");
+      }
+
+      writer.block(
+        `public static ${name} fromValue(${valueType} value) {`,
+        () => {
+          writer.block(
+            `for (${name} candidate : values()) {`,
+            () => {
+              // `==` is right for int and wrong for String, so compare the
+              // way each type requires rather than the way that reads shorter.
+              const matches =
+                node.baseType === "integer"
+                  ? "candidate.value == value"
+                  : "candidate.value.equals(value)";
+
+              writer.block(
+                `if (${matches}) {`,
+                () => {
+                  writer.line("return candidate;");
+                },
+                "}",
+              );
+            },
+            "}",
+          );
+
+          writer.blank();
+          writer.line(
+            `throw new IllegalArgumentException("Unknown ${name}: " + value);`,
+          );
+        },
+        "}",
+      );
+    },
+    "}",
+  );
+}
+
 function objectsOf(
   root: ObjectNode,
   context: TransformationContext,
@@ -222,6 +338,26 @@ function objectsOf(
 
     return true;
   });
+}
+
+/** The package clause and Jackson imports for a standalone enum file. */
+function enumFileHeader(options: JavaOptions, writer: CodeWriter): void {
+  if (options.header === true) {
+    writer.line(commentBlock(GENERATED_HEADER)).blank();
+  }
+
+  if (options.packageName !== undefined && options.packageName.length > 0) {
+    writer.line(`package ${options.packageName};`).blank();
+  }
+
+  if (options.jsonAnnotations === true) {
+    writer
+      .linesOf([
+        "import com.fasterxml.jackson.annotation.JsonCreator;",
+        "import com.fasterxml.jackson.annotation.JsonValue;",
+      ])
+      .blank();
+  }
 }
 
 function fileHeader(
@@ -266,6 +402,16 @@ export function generateJavaFiles(
   context: TransformationContext,
   options: JavaOptions = {},
 ): JavaFiles {
+  // An enum is a top-level type in Java, so it gets its own file like a class.
+  const enumEntries = context.getEnums().map((node): [string, string] => {
+    const writer = new CodeWriter(options.indent ?? "    ");
+
+    enumFileHeader(options, writer);
+    writeEnum(node, writer, options, true);
+
+    return [`${javaClassName(node.name)}.java`, writer.toString()];
+  });
+
   const entries = objectsOf(root, context).map((object): [string, string] => {
     const writer = new CodeWriter(options.indent ?? "    ");
 
@@ -275,7 +421,7 @@ export function generateJavaFiles(
     return [`${javaClassName(object.name)}.java`, writer.toString()];
   });
 
-  return Object.fromEntries(entries);
+  return Object.fromEntries([...enumEntries, ...entries]);
 }
 
 /**
@@ -321,16 +467,30 @@ export function generateJava(
     imports.push("import com.fasterxml.jackson.annotation.JsonProperty;");
   }
 
-  if (imports.length > 0) {
-    writer.linesOf(imports).blank();
+  const enums = context.getEnums();
+
+  if (options.jsonAnnotations === true && enums.length > 0) {
+    imports.push("import com.fasterxml.jackson.annotation.JsonCreator;");
+    imports.push("import com.fasterxml.jackson.annotation.JsonValue;");
   }
 
-  objects.forEach((object, index) => {
+  if (imports.length > 0) {
+    writer.linesOf([...imports].sort()).blank();
+  }
+
+  // Enums first, then classes. Only the first declaration may be public,
+  // which is why this preview is a preview: see generateJavaFiles.
+  const declarations = [
+    ...enums.map((node) => (isPublic: boolean) => writeEnum(node, writer, options, isPublic)),
+    ...objects.map((object) => (isPublic: boolean) => writeClass(object, writer, options, isPublic)),
+  ];
+
+  declarations.forEach((emit, index) => {
     if (index > 0) {
       writer.blank();
     }
 
-    writeClass(object, writer, options, index === 0);
+    emit(index === 0);
   });
 
   return writer.toString();
