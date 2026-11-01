@@ -1,5 +1,5 @@
 import type { EnumNode, ObjectNode } from "@devbridge/core";
-import { TransformationContext } from "@devbridge/core";
+import { TransformationContext, primitive } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -182,5 +182,70 @@ describe("enums", () => {
     expect(generatePython(root, context)).toContain("from enum import Enum");
     expect(generatePython({ kind: "object", name: "X", properties: [] }, new TransformationContext()))
       .not.toContain("from enum import Enum");
+  });
+});
+
+describe("maps", () => {
+  function withMaps(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const tag: ObjectNode = {
+      kind: "object",
+      name: "Tag",
+      properties: [{ name: "label", value: primitive("string"), optional: true }],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Doc",
+      properties: [
+        {
+          name: "labels",
+          value: { kind: "map", valueType: primitive("string") },
+          optional: false,
+        },
+        {
+          name: "tagsByKey",
+          value: { kind: "map", valueType: tag },
+          optional: false,
+        },
+        {
+          name: "listsByKey",
+          value: {
+            kind: "map",
+            valueType: { kind: "array", elementType: primitive("string") },
+          },
+          optional: false,
+        },
+        {
+          name: "anything",
+          value: { kind: "map", valueType: primitive("unknown") },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(tag);
+
+    return { root, context };
+  }
+
+  it("uses dict[str, T]", () => {
+    const { root, context } = withMaps();
+    const result = generatePython(root, context);
+
+    expect(result).toContain("labels: dict[str, str]");
+    expect(result).toContain("tagsByKey: dict[str, Tag]");
+    expect(result).toContain("listsByKey: dict[str, list[str]]");
+  });
+
+  it("imports Any for an unconstrained value type", () => {
+    const { root, context } = withMaps();
+    const result = generatePython(root, context);
+
+    // The import has to be collected through the map, not just the top level.
+    expect(result).toContain("from typing import Any");
+    expect(result).toContain("anything: dict[str, Any]");
   });
 });

@@ -1,5 +1,5 @@
 import type { EnumNode, ObjectNode } from "@devbridge/core";
-import { TransformationContext } from "@devbridge/core";
+import { TransformationContext, primitive } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -268,5 +268,62 @@ function withEnums(): { root: ObjectNode; context: TransformationContext } {
     expect(generateTypeScript(root, context)).toContain(
       'export type Long =\n  | "a-fairly-long-value-0"',
     );
+  });
+});
+
+describe("maps", () => {
+  function withMaps(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const tag: ObjectNode = {
+      kind: "object",
+      name: "Tag",
+      properties: [{ name: "label", value: primitive("string"), optional: true }],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Doc",
+      properties: [
+        {
+          name: "labels",
+          value: { kind: "map", valueType: primitive("string") },
+          optional: false,
+        },
+        {
+          name: "tagsByKey",
+          value: { kind: "map", valueType: tag },
+          optional: false,
+        },
+        {
+          name: "listsByKey",
+          value: {
+            kind: "map",
+            valueType: { kind: "array", elementType: primitive("string") },
+          },
+          optional: false,
+        },
+        {
+          name: "anything",
+          value: { kind: "map", valueType: primitive("unknown") },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(tag);
+
+    return { root, context };
+  }
+
+  it("uses Record with a string key", () => {
+    const { root, context } = withMaps();
+    const result = generateTypeScript(root, context);
+
+    expect(result).toContain("labels: Record<string, string>;");
+    expect(result).toContain("tagsByKey: Record<string, Tag>;");
+    expect(result).toContain("listsByKey: Record<string, string[]>;");
+    expect(result).toContain("anything: Record<string, unknown>;");
   });
 });

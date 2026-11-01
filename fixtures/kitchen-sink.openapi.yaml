@@ -92,6 +92,23 @@ components:
                 properties:
                   key: { type: string }
                   value: { type: string }
+            # Maps, which no JSON sample can be told apart from an object.
+            translations:
+              type: object
+              additionalProperties: { type: string }
+            # A map whose values are a named type, and one of lists, so the
+            # generators' import collection has to recurse.
+            partiesByRole:
+              type: object
+              additionalProperties: { $ref: "#/components/schemas/Customer" }
+            tagsByRegion:
+              type: object
+              additionalProperties:
+                type: array
+                items: { type: string }
+            metadata:
+              type: object
+              additionalProperties: true
 
     OrderLine:
       type: object

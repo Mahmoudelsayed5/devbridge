@@ -1,5 +1,5 @@
 import type { EnumNode, ObjectNode } from "@devbridge/core";
-import { TransformationContext } from "@devbridge/core";
+import { TransformationContext, primitive } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
 import { parseJson } from "@devbridge/json-transformer";
@@ -300,6 +300,95 @@ describe("enums", () => {
 
     expect(generateJavaFiles(root, context)["Status.java"]).not.toContain(
       "@JsonValue",
+    );
+  });
+});
+
+describe("maps", () => {
+  function withMaps(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const tag: ObjectNode = {
+      kind: "object",
+      name: "Tag",
+      properties: [{ name: "label", value: primitive("string"), optional: true }],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Doc",
+      properties: [
+        {
+          name: "labels",
+          value: { kind: "map", valueType: primitive("string") },
+          optional: false,
+        },
+        {
+          name: "tagsByKey",
+          value: { kind: "map", valueType: tag },
+          optional: false,
+        },
+        {
+          name: "listsByKey",
+          value: {
+            kind: "map",
+            valueType: { kind: "array", elementType: primitive("string") },
+          },
+          optional: false,
+        },
+        {
+          name: "anything",
+          value: { kind: "map", valueType: primitive("unknown") },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(tag);
+
+    return { root, context };
+  }
+
+  it("uses Map<String, T> with a boxed value", () => {
+    const { root, context } = withMaps();
+    const emitted = generateJavaFiles(root, context);
+
+    expect(emitted["Doc.java"]).toContain("private Map<String, String> labels;");
+    expect(emitted["Doc.java"]).toContain("private Map<String, Tag> tagsByKey;");
+    expect(emitted["Doc.java"]).toContain(
+      "private Map<String, List<String>> listsByKey;",
+    );
+  });
+
+  it("imports every java.util type the properties use, not just one", () => {
+    const { root, context } = withMaps();
+    const emitted = generateJavaFiles(root, context);
+
+    // A map of lists needs both, which is why import collection recurses.
+    expect(emitted["Doc.java"]).toContain("import java.util.List;");
+    expect(emitted["Doc.java"]).toContain("import java.util.Map;");
+  });
+
+  it("boxes the value type, since generics cannot hold primitives", () => {
+    const context = new TransformationContext();
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Doc",
+      properties: [
+        {
+          name: "counts",
+          value: { kind: "map", valueType: primitive("integer") },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+
+    expect(generateJavaFiles(root, context)["Doc.java"]).toContain(
+      "Map<String, Integer>",
     );
   });
 });
