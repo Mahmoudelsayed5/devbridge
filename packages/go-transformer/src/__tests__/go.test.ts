@@ -1,4 +1,4 @@
-import type { ObjectNode, ObjectProperty } from "@devbridge/core";
+import type { EnumNode, ObjectNode, ObjectProperty } from "@devbridge/core";
 import { TransformationContext } from "@devbridge/core";
 import { describe, expect, it } from "vitest";
 
@@ -174,5 +174,70 @@ describe("recursive types", () => {
     // A slice already holds its elements indirectly, so []Node inside Node
     // is a legal Go type as it stands.
     expect(collapse(generateGo(node, context))).toContain("Children []Node");
+  });
+});
+
+describe("enums", () => {
+  /** One string enum, one integer enum, and an object using both. */
+  function withEnums(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const status: EnumNode = {
+      kind: "enum",
+      name: "Status",
+      baseType: "string",
+      members: [
+        { name: "Available", value: "available" },
+        { name: "SoldOut", value: "sold out" },
+      ],
+    };
+
+    const priority: EnumNode = {
+      kind: "enum",
+      name: "Priority",
+      baseType: "integer",
+      members: [
+        { name: "Low", value: 1 },
+        { name: "High", value: 9 },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [{ name: "status", value: status, optional: false }],
+    };
+
+    context.registerEnum(status);
+    context.registerEnum(priority);
+    context.registerType(root);
+
+    return { root, context };
+  }
+
+  it("uses a defined type and typed constants, as Go does", () => {
+    const { root, context } = withEnums();
+    const result = collapse(generateGo(root, context));
+
+    // Go has no enum keyword; this is the shape its standard library uses.
+    expect(result).toContain("type Status string");
+    expect(result).toContain('StatusAvailable Status = "available"');
+    expect(result).toContain('StatusSoldOut Status = "sold out"');
+  });
+
+  it("prefixes constants with the type name", () => {
+    const { root, context } = withEnums();
+
+    // Go constants are package scoped, so two enums with a shared member name
+    // would collide without the prefix.
+    expect(generateGo(root, context)).toContain("PriorityLow");
+  });
+
+  it("uses int for an integer enum", () => {
+    const { root, context } = withEnums();
+    const result = collapse(generateGo(root, context));
+
+    expect(result).toContain("type Priority int");
+    expect(result).toContain("PriorityLow Priority = 1");
   });
 });

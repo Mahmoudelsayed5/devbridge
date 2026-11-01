@@ -25,7 +25,7 @@ There are three intermediate representations, and each split is deliberate.
 
 | IR | Models | Fed by | Feeds |
 | --- | --- | --- | --- |
-| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
+| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions, enums | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
 | **relational** (`RelationalModel`) | tables, columns, keys and the relationships between them | `sql` | `mermaid`, `dbml` |
 | **api** (`ApiModel`) | endpoints: verbs, paths, parameters, bodies and responses | `openapi` | `postman` |
 
@@ -62,6 +62,36 @@ Recursion comes free for the same reason: a `$ref` is a link by name, so a
 category whose children are categories is an ordinary cycle in the graph,
 where no finite set of JSON samples could describe one.
 
+### Enums
+
+`enum` is the fourth thing a schema states and a sample cannot. Seeing
+`"available"` in a payload tells you the field is a string; `enum: [available,
+pending, sold]` tells you the set is *closed*, which is a different and much
+stronger claim. Inferring one from samples would be a guess about values that
+have not occurred yet, so the JSON parser deliberately does not, and
+`EnumNode` is reached from OpenAPI alone.
+
+Each target renders it the way that language actually spells the idea:
+
+| Target | Rendering |
+| --- | --- |
+| TypeScript | `type Status = "available" \| "sold";` — the members *are* the wire values, so nothing maps in either direction. `enumStyle: "enum"` gives the nominal form instead. |
+| Java | `enum Status` where each constant carries its value, plus `getValue()` and `fromValue()` — Java constants are `SHOUTY_CASE` and the wire value usually is not, so the mapping has to live somewhere |
+| Go | `type Status string` with typed constants, which is what the standard library does (`time.Monday`). Constants are prefixed because Go constants are package scoped |
+| Python | `class Status(str, Enum)` — subclassing `str` matters: a plain `Enum` member is not equal to its value and `json.dumps` refuses it |
+| C# | `enum Status` with `[JsonConverter(typeof(JsonStringEnumConverter))]` |
+
+The member name and the wire value are stored separately in the IR, because
+they are rarely the same: `"n/a"`, `"2xx"` and `""` are not identifiers in any
+of these languages. The IR holds a neutral name that each generator re-cases,
+alongside the value, which is preserved exactly.
+
+One honest limit, reported rather than hidden: **C# cannot express a value
+that is not a case-variant of its member name**. `System.Text.Json` matches
+member *names*, and the attribute that would fix it
+(`JsonStringEnumMemberName`) is .NET 9. The C# generator emits a warning
+naming the specific values that will not round-trip.
+
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
 an `irKind`, and the engine refuses to pair mismatched ones with a message
@@ -86,6 +116,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 7 | VS Code extension | done |
 | 7b | Chrome extension | see docs/roadmap.md — recommended against for now |
 | 8 | OpenAPI → language models (second IR from one source) | done |
+| 9 | Enums in the IR | done |
 
 ## Packages
 
@@ -179,7 +210,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 356 tests pass.
+14 packages build clean, 400 tests pass.
 
 Linting is oxlint rather than ESLint, because typescript-eslint does not
 support TypeScript 7 and this repo targets the native port:

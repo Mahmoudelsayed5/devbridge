@@ -130,7 +130,7 @@ describe("parseOpenApiSchemas", () => {
       expect(typeOf(row, "b")).toMatchObject({ type: "boolean" });
     });
 
-    it("gives an enum its base type", () => {
+    it("gives an enum a named enum type, not its base type", () => {
       const result = parse(`
     Row:
       type: object
@@ -141,8 +141,16 @@ describe("parseOpenApiSchemas", () => {
 
       const row = typeNamed(result, "Row");
 
-      expect(typeOf(row, "status")).toMatchObject({ type: "string" });
-      expect(typeOf(row, "code")).toMatchObject({ type: "integer" });
+      // Enums are their own IR node; see enums.test.ts for the detail.
+      expect(typeOf(row, "status")).toMatchObject({
+        kind: "enum",
+        baseType: "string",
+      });
+
+      expect(typeOf(row, "code")).toMatchObject({
+        kind: "enum",
+        baseType: "integer",
+      });
     });
 
     it("falls back to unknown for a schema that declares nothing", () => {

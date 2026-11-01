@@ -28,6 +28,7 @@
 
 import type {
   Diagnostic,
+  EnumNode,
   ObjectNode,
   ObjectProperty,
   ParseOptions,
@@ -39,6 +40,7 @@ import {
   NameAllocator,
   TransformationContext,
   TransformationError,
+  enumMembersFrom,
   primitive,
   sanitizeIdentifier,
   toPascalCase,
@@ -118,7 +120,14 @@ function declaredTypes(schema: Record<string, unknown>): string[] {
  * documents claiming to be the other version, so both are accepted.
  */
 function isNullable(schema: Record<string, unknown>): boolean {
-  return schema["nullable"] === true || declaredTypes(schema).includes("null");
+  return (
+    schema["nullable"] === true ||
+    declaredTypes(schema).includes("null") ||
+    // A `null` among the enum values is a third spelling of the same thing:
+    // it widens what the field accepts rather than adding a member, and no
+    // target can declare `null` as an enum constant anyway.
+    (array(schema["enum"]) ?? []).includes(null)
+  );
 }
 
 function withNull(node: TypeNode): TypeNode {
@@ -159,6 +168,57 @@ function scalarNode(
     default:
       return "unknown";
   }
+}
+
+/** The declared `enum` values, or undefined when the schema has none. */
+function enumValuesOf(schema: Record<string, unknown>): unknown[] | undefined {
+  const values = array(schema["enum"]);
+
+  return values === undefined || values.length === 0 ? undefined : values;
+}
+
+/**
+ * Builds a named enum for a schema's `enum` keyword.
+ *
+ * `null` among the values means the enum is nullable rather than that `null`
+ * is a member, so it is stripped here and the caller's nullability handling
+ * picks it up — `nullable: true` and a `null` member mean the same thing.
+ *
+ * Returns undefined when the values cannot be one enum (mixed types, say), in
+ * which case the caller falls back to a plain scalar: a loose approximation
+ * beats refusing the document over a detail of one field.
+ */
+function enumNodeFor(
+  build: Build,
+  values: readonly unknown[],
+  name: string,
+): EnumNode | undefined {
+  const withoutNull = values.filter((value) => value !== null);
+  const built = enumMembersFrom(withoutNull);
+
+  if (built === undefined) {
+    build.diagnostics.push({
+      severity: "warning",
+      code: "openapi/mixed-enum",
+      message: `"${name}" has enum values of more than one type, which no target can declare as a single enum; it becomes a plain value.`,
+      hint: "Split it into separate schemas, one per value type.",
+    });
+
+    return undefined;
+  }
+
+  // An integer enum whose schema says `format: int64` is still an enum of
+  // whole numbers; the IR records only that the base is integral.
+  const node: EnumNode = {
+    kind: "enum",
+    name,
+    baseType: built.baseType,
+    members: built.members,
+  };
+
+  build.context.registerEnum(node);
+
+  return node;
 }
 
 /** Infers a type from `enum` members when the schema omits `type`. */
@@ -335,7 +395,7 @@ function nodeForKey(build: Build, key: string, depth: number): TypeNode {
     // A schema that is not object-like — a string alias, an enum, an array of
     // something — has no place of its own in the IR, which has no type
     // aliases. References to it inline the underlying type instead.
-    node = buildNode(build, schema, name, depth);
+    node = buildNode(build, schema, name, depth, name);
   }
 
   build.building.delete(key);
@@ -390,17 +450,24 @@ function buildNode(
   schema: Record<string, unknown>,
   nameHint: string,
   depth: number,
+  ownName?: string,
 ): TypeNode {
-  const node = buildBare(build, schema, nameHint, depth);
+  const node = buildBare(build, schema, nameHint, depth, ownName);
 
   return isNullable(schema) ? withNull(node) : node;
 }
 
+/**
+ * @param ownName the name already allocated for this schema, when it is a
+ * top-level one. Passing it stops a second name being handed out for the
+ * same type — `Status` becoming `Status2`.
+ */
 function buildBare(
   build: Build,
   schema: Record<string, unknown>,
   nameHint: string,
   depth: number,
+  ownName?: string,
 ): TypeNode {
   const types = declaredTypes(schema).filter((type) => type !== "null");
 
@@ -467,12 +534,30 @@ function buildBare(
     return primitive("unknown");
   }
 
-  const enumValues = array(schema["enum"]);
+  const enumValues = enumValuesOf(schema);
 
-  if (types.length === 0 && enumValues !== undefined && enumValues.length > 0) {
-    // The IR has no enum, so an enum is its base type. Generating real enums
-    // is a worthwhile future change and would need an IR addition.
-    return primitive(enumType(enumValues));
+  if (enumValues !== undefined) {
+    // Checked before the scalar cases: `type: string` with an `enum` is an
+    // enum, not a string, and the closed set is the more useful fact.
+    const node = enumNodeFor(
+      build,
+      enumValues,
+      ownName ??
+        build.allocator.allocate(
+          sanitizeIdentifier(nameHint, { fallback: "Enum" }),
+        ),
+    );
+
+    if (node !== undefined) {
+      return node;
+    }
+
+    // Not expressible as one enum; fall through to the base type.
+    return primitive(
+      types.length === 1
+        ? scalarNode(types[0] as string, schema)
+        : enumType(enumValues),
+    );
   }
 
   if (types.length === 0) {
@@ -556,20 +641,28 @@ export function parseOpenApiSchemas(
   const types = build.context.getTypes();
 
   if (types.length === 0) {
-    throw new TransformationError(
-      "None of the document's schemas describe an object, so there are no models to generate.",
-      [
-        {
-          severity: "error",
-          code: "openapi/no-object-schemas",
-          message:
-            "None of the document's schemas describe an object, so there are no models to generate.",
-          line: 1,
-          column: 1,
-          hint: "The type graph has no type aliases, so a schema like `type: string` produces nothing on its own.",
-        },
-      ],
-    );
+    // An enum-only document is a real artifact — a shared file of status
+    // values — but `ParseResult.root` is an `ObjectNode`, so there is nothing
+    // honest to return. Say exactly that rather than inventing an empty
+    // wrapper type the document does not contain.
+    const enumOnly = build.context.getEnums().length > 0;
+
+    const message = enumOnly
+      ? "The document's schemas are all enums, and a transformation needs at least one object type to anchor the output."
+      : "None of the document's schemas describe an object, so there are no models to generate.";
+
+    throw new TransformationError(message, [
+      {
+        severity: "error",
+        code: enumOnly ? "openapi/enums-only" : "openapi/no-object-schemas",
+        message,
+        line: 1,
+        column: 1,
+        hint: enumOnly
+          ? "Add a schema that uses them, or generate from a document that has one."
+          : "The type graph has no type aliases, so a schema like `type: string` produces nothing on its own.",
+      },
+    ]);
   }
 
   // The first schema becomes the root. Every generator emits each type in the
@@ -577,8 +670,11 @@ export function parseOpenApiSchemas(
   // synthetic wrapper type that is not in the document.
   const root = types[0] as ObjectNode;
 
+  // Schemas that produced no type of their own. An enum counts as a type, so
+  // only true aliases — `Email: {type: string}` — are listed here.
   const skipped = [...build.names.entries()].filter(
-    ([key]) => !build.objects.has(key),
+    ([key, name]) =>
+      !build.objects.has(key) && !build.context.hasEnum(name),
   );
 
   if (skipped.length > 0) {

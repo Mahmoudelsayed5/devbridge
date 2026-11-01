@@ -1,4 +1,5 @@
 import type {
+  EnumNode,
   GenerateResult,
   GeneratorOptions,
   ObjectNode,
@@ -86,6 +87,7 @@ function collectImports(type: TypeNode, into: Set<string>): void {
       return;
 
     case "object":
+    case "enum":
       return;
 
     case "array":
@@ -123,6 +125,7 @@ export function toPythonType(type: TypeNode): string {
       return primitiveToPython(type.type);
 
     case "object":
+    case "enum":
       return pythonClassName(type.name);
 
     case "array":
@@ -169,6 +172,40 @@ function toFields(object: ObjectNode, options: PythonOptions): PythonField[] {
     ...fields.filter((field) => !field.hasDefault),
     ...fields.filter((field) => field.hasDefault),
   ];
+}
+
+/**
+ * Writes a Python enum.
+ *
+ * It subclasses `str` (or `int`) as well as `Enum` deliberately: a plain
+ * `Enum` member is not equal to its value and `json.dumps` refuses to
+ * serialise it, whereas `class Status(str, Enum)` *is* a string everywhere it
+ * matters, so existing code comparing to `"available"` keeps working and the
+ * value round-trips without a custom encoder.
+ */
+function writeEnum(node: EnumNode, writer: CodeWriter): void {
+  const base = node.baseType === "integer" ? "int" : "str";
+  const allocator = new NameAllocator();
+
+  writer.line(`class ${pythonClassName(node.name)}(${base}, Enum):`).indented(
+    () => {
+      for (const member of node.members) {
+        const name = allocator.allocate(
+          sanitizeIdentifier(toSnakeCase(member.name).toUpperCase(), {
+            keywords: PYTHON_KEYWORDS,
+            fallback: "VALUE",
+          }),
+        );
+
+        const literal =
+          typeof member.value === "string"
+            ? JSON.stringify(member.value)
+            : String(member.value);
+
+        writer.line(`${name} = ${literal}`);
+      }
+    },
+  );
 }
 
 function writeClass(
@@ -226,11 +263,22 @@ export function generatePython(
   writer.line("from __future__ import annotations").blank();
   writer.line("from dataclasses import dataclass");
 
+  const enums = context.getEnums();
+
+  if (enums.length > 0) {
+    writer.line("from enum import Enum");
+  }
+
   if (typingImports.size > 0) {
     writer.line(`from typing import ${[...typingImports].sort().join(", ")}`);
   }
 
   // PEP 8 asks for two blank lines between top-level definitions.
+  for (const node of enums) {
+    writer.line("").line("");
+    writeEnum(node, writer);
+  }
+
   for (const object of objects) {
     writer.line("").line("");
     writeClass(object, writer, options);

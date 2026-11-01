@@ -37,8 +37,17 @@ components:
         active: { type: boolean }
         opened_at: { type: string, format: date-time }
         note: { type: string, nullable: true }
-        tier: { type: string, enum: [free, pro, enterprise] }
+        tier: { $ref: "#/components/schemas/Tier" }
         priority: { enum: [1, 2, 3] }
+        # Values that are not identifiers, which is what forces each target's
+        # name-versus-value handling to be real rather than a pass-through.
+        grade: { type: string, enum: ["A+", "n/a", "2xx", "kebab-case"] }
+        mood: { type: string, enum: [happy, sad], nullable: true }
+
+    # A named enum, referenced twice, so it is one type rather than two.
+    Tier:
+      type: string
+      enum: [free, pro, enterprise]
 
     # Referenced twice below, and therefore one type rather than two.
     Customer:
@@ -48,6 +57,7 @@ components:
         id: { type: integer, format: int64 }
         name: { type: string }
         account: { $ref: "#/components/schemas/Account" }
+        tier: { $ref: "#/components/schemas/Tier" }
 
     # allOf as inheritance: the generated model needs the inherited fields.
     Identified:

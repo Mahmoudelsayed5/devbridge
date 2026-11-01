@@ -229,7 +229,7 @@ outputs — the collection to call the API with, and the types to hold what it
 returns.
 
 This is also the *best* input the models can have, and noticeably better than
-pasting a sample response. A sample leaves three things to guesswork that a
+pasting a sample response. A sample leaves four things to guesswork that a
 schema simply states:
 
 - **Is this field optional?** A sample can only tell you it was absent that
@@ -239,6 +239,11 @@ schema simply states:
 - **Will this id overflow an `int`?** A sample containing `42` gives no clue.
   `format: int64` does — and a 32-bit overflow in production is a genuinely
   expensive way to find out.
+- **Is this field one of a fixed set?** Seeing `"available"` tells you it's a
+  string. `enum: [available, pending, sold]` tells you the set is *closed* —
+  so you get a real `enum` in Java, Python and C#, typed constants in Go, and
+  a union of literals in TypeScript, instead of an unconstrained `string` the
+  compiler cannot help you with.
 
 Recursive structures work too — a category tree, a comment thread — which no
 number of sample payloads can express.
@@ -329,7 +334,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-356 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+400 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 
