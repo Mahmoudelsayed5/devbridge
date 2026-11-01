@@ -312,3 +312,73 @@ describe("maps", () => {
     );
   });
 });
+
+describe("discriminated unions", () => {
+  function withDiscriminator(): {
+    root: ObjectNode;
+    context: TransformationContext;
+  } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "cat" }, optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "dog" }, optional: false },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Shelter",
+      properties: [
+        {
+          name: "resident",
+          value: {
+            kind: "union",
+            types: [cat, dog],
+            discriminator: {
+              propertyName: "petType",
+              mapping: [
+                { value: "cat", typeName: "Cat" },
+                { value: "dog", typeName: "Dog" },
+              ],
+            },
+          },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root, context };
+  }
+
+  it("emits the tag as a string, C# having no literal types", () => {
+    const { root, context } = withDiscriminator();
+
+    expect(generateCSharpFiles(root, context)["Cat.cs"]).toContain(
+      "string PetType",
+    );
+  });
+
+  it("reports that the union is emitted untyped", () => {
+    const { root, context } = withDiscriminator();
+    const diagnostics = cSharpGenerator.generate(root, context).diagnostics ?? [];
+
+    expect(diagnostics.map((d) => d.code)).toContain(
+      "csharp/discriminator-unsupported",
+    );
+  });
+});

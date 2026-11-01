@@ -249,6 +249,11 @@ schema simply states:
   `additionalProperties`. Then you get `Record<string, string>` or
   `Map<String, String>`, rather than a class with permanent `en` and `fr`
   fields that breaks the day someone adds Spanish.
+- **Which kind of thing is this?** A response that is either a `Cat` or a
+  `Dog` is only useful if you can tell them apart. A `discriminator` says
+  which property carries the answer, so TypeScript gets `petType: "cat"` and
+  narrows the union in a `switch` — a compiler-checked exhaustive match
+  instead of a cast and a hope.
 
 Recursive structures work too — a category tree, a comment thread — which no
 number of sample payloads can express.
@@ -339,7 +344,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-422 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+442 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 

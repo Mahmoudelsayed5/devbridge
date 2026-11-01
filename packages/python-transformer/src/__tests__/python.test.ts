@@ -249,3 +249,73 @@ describe("maps", () => {
     expect(result).toContain("anything: dict[str, Any]");
   });
 });
+
+describe("discriminated unions", () => {
+  function withDiscriminator(): {
+    root: ObjectNode;
+    context: TransformationContext;
+  } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "cat" }, optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "dog" }, optional: false },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Shelter",
+      properties: [
+        {
+          name: "resident",
+          value: {
+            kind: "union",
+            types: [cat, dog],
+            discriminator: {
+              propertyName: "petType",
+              mapping: [
+                { value: "cat", typeName: "Cat" },
+                { value: "dog", typeName: "Dog" },
+              ],
+            },
+          },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root, context };
+  }
+
+  it("emits the tag as Literal, which a type checker narrows on", () => {
+    const { root, context } = withDiscriminator();
+    const result = generatePython(root, context);
+
+    expect(result).toContain('petType: Literal["cat"]');
+    expect(result).toContain('petType: Literal["dog"]');
+    expect(result).toContain("resident: Union[Cat, Dog]");
+  });
+
+  it("imports Literal, which is collected through the property", () => {
+    const { root, context } = withDiscriminator();
+
+    expect(generatePython(root, context)).toContain(
+      "from typing import Literal, Union",
+    );
+  });
+});

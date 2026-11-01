@@ -25,7 +25,7 @@ There are three intermediate representations, and each split is deliberate.
 
 | IR | Models | Fed by | Feeds |
 | --- | --- | --- | --- |
-| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions, enums, maps | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
+| **type graph** (`TypeNode`) | the *shape* of a value: primitives, objects, arrays, unions, enums, maps, literals | `json`, `openapi` | `typescript`, `java`, `go`, `python`, `csharp` |
 | **relational** (`RelationalModel`) | tables, columns, keys and the relationships between them | `sql` | `mermaid`, `dbml` |
 | **api** (`ApiModel`) | endpoints: verbs, paths, parameters, bodies and responses | `openapi` | `postman` |
 
@@ -121,6 +121,33 @@ fields, plus any others", which no target type can hold — a class with named
 fields has nowhere to put the rest. The named fields win, and the dropped
 overflow is reported.
 
+### Discriminated unions
+
+`Cat | Dog` is awkward in every language: given one, there is no way to tell
+which you have without inspecting fields. OpenAPI's `discriminator` says that
+one property carries the answer, and the parser resolves its two spellings —
+an explicit `mapping`, or the implicit rule where the tag is each branch's
+*schema name* — into one list of value-to-type pairs.
+
+The payoff is a **literal** tag on each branch:
+
+```ts
+export interface Cat { petType: "cat"; meowVolume: number; }
+export interface Dog { petType: "dog"; breed: string; }
+export interface Shelter { resident: Cat | Dog; }
+```
+
+which is what makes `switch (resident.petType)` narrow. Python gets the same
+through `Literal["cat"]`. Narrowing the branch is sound beyond the union
+itself — the discriminator asserts a Cat's tag is *always* `"cat"` — so it
+holds wherever `Cat` appears.
+
+**Java, C# and Go cannot express this**, and say so rather than pretending.
+All three would need the branches to share a declared base type — a sealed
+interface, or a class carrying `[JsonPolymorphic]` — and the type graph has
+no notion of one object type extending another. They emit the union untyped,
+as before, with a warning naming the discriminator that was lost.
+
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
 an `irKind`, and the engine refuses to pair mismatched ones with a message
@@ -147,6 +174,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 8 | OpenAPI → language models (second IR from one source) | done |
 | 9 | Enums in the IR | done |
 | 10 | Maps in the IR | done |
+| 11 | Discriminated unions | done |
 
 ## Packages
 
@@ -240,7 +268,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 422 tests pass.
+14 packages build clean, 442 tests pass.
 
 Linting is oxlint rather than ESLint, because typescript-eslint does not
 support TypeScript 7 and this repo targets the native port:

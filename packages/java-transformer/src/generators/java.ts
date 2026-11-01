@@ -1,4 +1,5 @@
 import type {
+  Diagnostic,
   EnumNode,
   GenerateResult,
   GeneratedFile,
@@ -13,6 +14,7 @@ import type {
 import {
   CodeWriter,
   GENERATED_HEADER,
+  discriminatedUnions,
   NameAllocator,
   commentBlock,
   sanitizeIdentifier,
@@ -103,6 +105,11 @@ export function toJavaType(type: TypeNode, boxed = false): string {
       // A JSON object key is always a string, so the key type is fixed.
       return `Map<String, ${toJavaType(type.valueType, true)}>`;
 
+    case "literal":
+      // Java has no literal types, so a discriminator tag is just a
+      // String. See the diagnostic in generateJavaFiles.
+      return "String";
+
     case "union": {
       const { type: nonNull } = splitNullable(type);
 
@@ -141,6 +148,7 @@ function javaUtilImports(type: TypeNode, into: Set<string>): void {
     // A referenced class or enum declares its own imports in its own file.
     case "object":
     case "enum":
+    case "literal":
     case "primitive":
       return;
   }
@@ -526,6 +534,30 @@ export function generateJava(
   return writer.toString();
 }
 
+/**
+ * Reports discriminated unions, which Java cannot express.
+ *
+ * Java would need the branches to share a sealed interface, which the type graph has no way to express.
+ * The union itself is still generated, just without the narrowing — so
+ * this says what was lost rather than changing the output.
+ */
+function discriminatorDiagnostics(
+  root: ObjectNode,
+  context: TransformationContext,
+): Diagnostic[] {
+  const all = context.hasType(root.name)
+    ? context.getTypes()
+    : [root, ...context.getTypes()];
+
+  return discriminatedUnions(all).map((discriminator) => ({
+    severity: "warning" as const,
+    code: "java/discriminator-unsupported",
+    message: `The union discriminated by "${discriminator.propertyName}" (${discriminator.mapping
+      .map((entry) => entry.value)
+      .join(", ")}) is emitted untyped.`,
+    hint: "Java would need the branches to share a sealed interface, which the type graph has no way to express.",
+  }));
+}
 export const javaGenerator: TargetGenerator = {
   id: "java",
   irKind: "type-graph",
@@ -543,9 +575,12 @@ export const javaGenerator: TargetGenerator = {
       generateJavaFiles(root, context, javaOptions),
     ).map(([path, content]) => ({ path, content }));
 
+    const diagnostics = discriminatorDiagnostics(root, context);
+
     return {
       files,
       preview: generateJava(root, context, javaOptions),
+      ...(diagnostics.length === 0 ? {} : { diagnostics }),
     };
   },
 };

@@ -327,3 +327,71 @@ describe("maps", () => {
     expect(result).toContain("anything: Record<string, unknown>;");
   });
 });
+
+describe("discriminated unions", () => {
+  function withDiscriminator(): {
+    root: ObjectNode;
+    context: TransformationContext;
+  } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "cat" }, optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      properties: [
+        { name: "petType", value: { kind: "literal", value: "dog" }, optional: false },
+      ],
+    };
+
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Shelter",
+      properties: [
+        {
+          name: "resident",
+          value: {
+            kind: "union",
+            types: [cat, dog],
+            discriminator: {
+              propertyName: "petType",
+              mapping: [
+                { value: "cat", typeName: "Cat" },
+                { value: "dog", typeName: "Dog" },
+              ],
+            },
+          },
+          optional: false,
+        },
+      ],
+    };
+
+    context.registerType(root);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root, context };
+  }
+
+  it("emits the tag as a literal type, which is what narrows", () => {
+    const { root, context } = withDiscriminator();
+    const result = generateTypeScript(root, context);
+
+    expect(result).toContain('petType: "cat";');
+    expect(result).toContain('petType: "dog";');
+    expect(result).toContain("resident: Cat | Dog;");
+  });
+
+  it("reports nothing, because TypeScript expresses this natively", () => {
+    const { root, context } = withDiscriminator();
+
+    expect(typeScriptGenerator.generate(root, context).diagnostics).toBeUndefined();
+  });
+});

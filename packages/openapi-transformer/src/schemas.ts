@@ -28,6 +28,8 @@
 
 import type {
   Diagnostic,
+  Discriminator,
+  DiscriminatorMapping,
   EnumNode,
   ObjectNode,
   ObjectProperty,
@@ -52,6 +54,7 @@ import {
   record,
   readDocument,
   schemasOf,
+  text,
   validateDocument,
 } from "./document.js";
 import { deref } from "./schema.js";
@@ -89,6 +92,19 @@ interface Build {
   readonly resolved: Map<string, TypeNode>;
   /** Keys currently being built, to break reference cycles. */
   readonly building: Set<string>;
+  /**
+   * Every object node by name, kept mutable so a discriminator tag can be
+   * narrowed to a literal after the whole graph is built. Rewriting in
+   * place matters: by the time a discriminator is read, other properties
+   * already hold references to the branch types.
+   */
+  readonly allObjects: Map<string, PendingObject>;
+  /** Tag rewrites to apply once every schema has been built. */
+  readonly tagRewrites: {
+    typeName: string;
+    propertyName: string;
+    value: string;
+  }[];
 }
 
 function array(value: unknown): unknown[] | undefined {
@@ -328,7 +344,7 @@ function objectNode(
   schema: Record<string, unknown>,
   name: string,
   depth: number,
-): ObjectNode {
+): PendingObject {
   const { properties, required } = flattenAllOf(build, schema, depth);
 
   const members: ObjectProperty[] = [...properties].map(
@@ -359,7 +375,105 @@ function objectNode(
     });
   }
 
-  return { kind: "object", name, properties: members };
+  const node: PendingObject = { kind: "object", name, properties: members };
+
+  build.allObjects.set(name, node);
+
+  return node;
+}
+
+/**
+ * Reads a `discriminator` and works out which tag value selects which type.
+ *
+ * OpenAPI gives this two spellings. An explicit `mapping` lists the pairs
+ * outright; with no mapping the rule is implicit — the tag value is the
+ * *schema name* of each `oneOf` branch. The generators never see schema
+ * names, so resolving both forms to the same explicit list is work only the
+ * parser can do.
+ *
+ * Returns undefined when the discriminator names no property, or when no
+ * branch can be resolved to a named type — an inline branch has no name for a
+ * tag to select.
+ */
+function discriminatorFor(
+  build: Build,
+  schema: Record<string, unknown>,
+  branches: readonly unknown[],
+  nameHint: string,
+): Discriminator | undefined {
+  const declared = record(schema["discriminator"]);
+
+  if (declared === undefined) {
+    return undefined;
+  }
+
+  const propertyName = text(declared["propertyName"]);
+
+  if (propertyName === undefined) {
+    build.diagnostics.push({
+      severity: "warning",
+      code: "openapi/discriminator-without-property",
+      message: `"${nameHint}" has a discriminator with no propertyName, so its branches cannot be told apart.`,
+      hint: "A discriminator must name the property that carries the tag.",
+    });
+
+    return undefined;
+  }
+
+  const mapping: DiscriminatorMapping[] = [];
+  const explicit = record(declared["mapping"]);
+
+  if (explicit !== undefined) {
+    for (const [value, target] of Object.entries(explicit)) {
+      const key = refKey({ $ref: target });
+      const typeName = key === undefined ? undefined : build.names.get(key);
+
+      if (typeName === undefined) {
+        build.diagnostics.push({
+          severity: "warning",
+          code: "openapi/discriminator-unknown-target",
+          message: `"${nameHint}" maps the discriminator value "${value}" to ${JSON.stringify(target)}, which is not a schema in this document.`,
+        });
+
+        continue;
+      }
+
+      mapping.push({ value, typeName });
+    }
+  } else {
+    // The implicit rule: each branch is tagged with its own schema name.
+    for (const branch of branches) {
+      const key = refKey(branch);
+      const typeName = key === undefined ? undefined : build.names.get(key);
+
+      if (key !== undefined && typeName !== undefined) {
+        mapping.push({ value: key, typeName });
+      }
+    }
+  }
+
+  if (mapping.length === 0) {
+    build.diagnostics.push({
+      severity: "warning",
+      code: "openapi/discriminator-unresolved",
+      message: `"${nameHint}" declares a discriminator on "${propertyName}", but none of its branches is a reference to a named schema, so there is nothing to tag.`,
+      hint: "Discriminated branches must be $refs; an inline schema has no name for a tag to select.",
+    });
+
+    return undefined;
+  }
+
+  // Queue the tag narrowing rather than applying it here: a branch may not be
+  // finished being built yet, and its properties must exist first.
+  for (const entry of mapping) {
+    build.tagRewrites.push({
+      typeName: entry.typeName,
+      propertyName,
+      value: entry.value,
+    });
+  }
+
+  return { propertyName, mapping };
 }
 
 /** True when a schema should become a named object type. */
@@ -420,6 +534,10 @@ function nodeForKey(build: Build, key: string, depth: number): TypeNode {
     // Complete the placeholder in place: anything that already captured a
     // reference to it during a cycle sees the finished properties.
     placeholder.properties = built.properties;
+
+    // `built` is a throwaway — the placeholder is the node everything else
+    // holds a reference to, so it is the one a later tag rewrite must find.
+    build.allObjects.set(name, placeholder);
 
     build.context.registerType(placeholder);
     node = placeholder;
@@ -503,9 +621,8 @@ function buildBare(
 ): TypeNode {
   const types = declaredTypes(schema).filter((type) => type !== "null");
 
-  // oneOf / anyOf become a union. The IR cannot express a discriminator, so
-  // the branches are kept and the discriminator property, if any, survives
-  // only as a property of whichever branches declare it.
+  // oneOf / anyOf become a union, with the discriminator attached when the
+  // document declares one.
   for (const key of ["oneOf", "anyOf"] as const) {
     const branches = array(schema[key]);
 
@@ -516,9 +633,17 @@ function buildBare(
 
       const unique = [...new Map(members.map((m) => [typeKey(m), m])).values()];
 
-      return unique.length === 1
-        ? (unique[0] as TypeNode)
-        : { kind: "union", types: unique };
+      if (unique.length === 1) {
+        return unique[0] as TypeNode;
+      }
+
+      const discriminator = discriminatorFor(build, schema, branches, nameHint);
+
+      return {
+        kind: "union",
+        types: unique,
+        ...(discriminator === undefined ? {} : { discriminator }),
+      };
     }
   }
 
@@ -611,6 +736,60 @@ function buildBare(
 }
 
 /**
+ * Narrows each discriminated branch's tag property to the literal it must be.
+ *
+ * This is what makes the union usable: `Cat` with `petType: string` tells a
+ * reader nothing, where `petType: "cat"` lets TypeScript and a Python type
+ * checker narrow `Cat | Dog` in a `switch`. It is sound beyond the union
+ * too — the discriminator asserts that a Cat's tag is always `"cat"`, so the
+ * narrowing holds wherever Cat is used.
+ *
+ * Applied after the whole graph is built, because a branch may still have
+ * been under construction when its union was read, and in place, because
+ * other properties already hold references to these nodes.
+ */
+function applyTagRewrites(build: Build): void {
+  for (const rewrite of build.tagRewrites) {
+    const target = build.allObjects.get(rewrite.typeName);
+
+    if (target === undefined) {
+      continue;
+    }
+
+    const index = target.properties.findIndex(
+      (property) => property.name === rewrite.propertyName,
+    );
+
+    if (index === -1) {
+      // The spec requires the tag property to be declared on the branch. A
+      // document that omits it is not rejected — the union is still correct —
+      // but the narrowing cannot be added without inventing a field.
+      build.diagnostics.push({
+        severity: "warning",
+        code: "openapi/discriminator-property-missing",
+        message: `"${rewrite.typeName}" is selected by the discriminator value "${rewrite.value}" but does not declare the property "${rewrite.propertyName}".`,
+        hint: "The discriminator property must be declared on each branch, and listed as required.",
+      });
+
+      continue;
+    }
+
+    const existing = target.properties[index] as ObjectProperty;
+
+    target.properties = [
+      ...target.properties.slice(0, index),
+      {
+        ...existing,
+        value: { kind: "literal", value: rewrite.value },
+        // The tag is what identifies the branch, so it is never absent.
+        optional: false,
+      },
+      ...target.properties.slice(index + 1),
+    ];
+  }
+}
+
+/**
  * Parses the `components/schemas` half of an OpenAPI document into the
  * type-graph IR.
  *
@@ -644,6 +823,8 @@ export function parseOpenApiSchemas(
     objects: new Map(),
     resolved: new Map(),
     building: new Set(),
+    allObjects: new Map(),
+    tagRewrites: [],
   };
 
   // Names first, for every key, so that a `$ref` resolves to a stable name
@@ -667,6 +848,7 @@ export function parseOpenApiSchemas(
       };
 
       build.objects.set(key, placeholder);
+      build.allObjects.set(placeholder.name, placeholder);
       build.context.registerType(placeholder);
     }
   }
@@ -674,6 +856,8 @@ export function parseOpenApiSchemas(
   for (const key of Object.keys(schemas)) {
     nodeForKey(build, key, 0);
   }
+
+  applyTagRewrites(build);
 
   const types = build.context.getTypes();
 

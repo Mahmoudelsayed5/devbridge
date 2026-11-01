@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after maps entered the IR.
+Last updated after discriminated unions landed.
 
 ---
 
@@ -15,7 +15,7 @@ Last updated after maps entered the IR.
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 422, all passing |
+| Tests | 442, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
@@ -322,6 +322,45 @@ Two things the change surfaced:
   now collects names recursively. C# needed no equivalent change, since
   `List` and `Dictionary` share one `using`.
 
+### Phase 11 — Discriminated unions
+
+`Cat | Dog` is awkward in every language: given one, there is no way to tell
+which you have without inspecting fields. OpenAPI's `discriminator` names the
+property that carries the answer.
+
+**Most of the work is resolution, which only the parser can do.** The keyword
+has two spellings: an explicit `mapping` of tag value to `$ref`, or — with no
+mapping — the implicit rule that the tag is each branch's own *schema name*.
+Generators never see schema names, so both forms are resolved into one list
+of value-to-type pairs before the IR leaves the parser. That is the same
+division of labour as everything else here: the parser knows the document,
+the generators know their language.
+
+**The payoff is a literal, not the discriminator itself.** `LiteralNode`
+joins the IR, and each branch's tag property is narrowed to the value that
+selects it — `petType: "cat"` rather than `petType: string`. That is what
+makes a `switch` narrow in TypeScript, and `Literal["cat"]` does the same
+under a Python type checker. Narrowing is sound beyond the union, too: the
+discriminator asserts a Cat's tag is *always* `"cat"`, so it holds wherever
+Cat appears, which a test pins.
+
+**Three targets cannot express this at all.** Java, C# and Go would each need
+the branches to share a declared base type — a sealed interface, or a class
+carrying `[JsonPolymorphic]` — and the type graph has no notion of one object
+type extending another. Adding inheritance to the IR to serve one keyword
+would be the tail wagging the dog, so they emit the union untyped exactly as
+before and warn, naming the discriminator that was lost. Nothing about their
+output got worse; what changed is that the omission is now stated.
+
+**The bug worth recording** was in the rewrite, not the parsing. Narrowing a
+tag has to mutate the branch *in place* — other properties already hold
+references to it — and top-level schemas are completed through the
+placeholder path built for reference cycles. The first version tracked the
+throwaway node that path discards rather than the placeholder everything
+points at, so every rewrite silently hit an orphan and the output was
+unchanged. Generating the output and looking at it caught it immediately;
+reading the code had not.
+
 ---
 
 ## Decisions that shaped the design
@@ -413,6 +452,7 @@ state.
 - ~~Real enums~~ — `EnumNode` is in the IR and every target declares one; see
   phase 9 below.
 - ~~Map types~~ — `MapNode` too; see phase 10.
+- ~~Discriminators~~ — see phase 11.
 
 - ~~OpenAPI → language models~~ — done, and it is the most interesting change
   in this list; see the phase 8 section below for what it cost and what it
@@ -520,8 +560,9 @@ Stated plainly, so nobody is surprised:
 - **A document of nothing but enums is refused.** `ParseResult.root` is an
   `ObjectNode`, so a schemas file with no object type has no honest root to
   return. Rare, but real for a shared enums file.
-- **A discriminated union loses its discriminator.** `oneOf` becomes a plain
-  union; OpenAPI's `discriminator` has nowhere to go.
+- **Three targets cannot express a discriminated union.** TypeScript and
+  Python narrow on a literal tag; Java, C# and Go have no sum type to hang
+  one on, so they emit the union untyped and say so.
 
 ---
 

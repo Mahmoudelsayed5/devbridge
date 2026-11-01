@@ -13,6 +13,7 @@ import type {
 import {
   CodeWriter,
   GENERATED_HEADER,
+  discriminatedUnions,
   NameAllocator,
   commentBlock,
   sanitizeIdentifier,
@@ -89,6 +90,10 @@ export function toCSharpType(type: TypeNode): string {
       // A JSON object key is always a string, so the key type is fixed.
       return `Dictionary<string, ${toCSharpType(type.valueType)}>`;
 
+    case "literal":
+      // C# has no literal types; the tag is a plain string.
+      return "string";
+
     case "array": {
       const { nullable, type: element } = splitNullable(type.elementType);
       const base = toCSharpType(element);
@@ -146,6 +151,7 @@ function needsListUsing(type: TypeNode): boolean {
     // A referenced class or enum declares its own usings in its own file.
     case "object":
     case "enum":
+    case "literal":
     case "primitive":
       return false;
   }
@@ -401,6 +407,30 @@ export function generateCSharpFiles(
   return Object.fromEntries([...enumEntries, ...entries]);
 }
 
+/**
+ * Reports discriminated unions, which C# cannot express.
+ *
+ * C# would need the branches to share a base type carrying [JsonPolymorphic], which the type graph has no way to express.
+ * The union itself is still generated, just without the narrowing — so
+ * this says what was lost rather than changing the output.
+ */
+function discriminatorDiagnostics(
+  root: ObjectNode,
+  context: TransformationContext,
+): Diagnostic[] {
+  const all = context.hasType(root.name)
+    ? context.getTypes()
+    : [root, ...context.getTypes()];
+
+  return discriminatedUnions(all).map((discriminator) => ({
+    severity: "warning" as const,
+    code: "csharp/discriminator-unsupported",
+    message: `The union discriminated by "${discriminator.propertyName}" (${discriminator.mapping
+      .map((entry) => entry.value)
+      .join(", ")}) is emitted untyped.`,
+    hint: "C# would need the branches to share a base type carrying [JsonPolymorphic], which the type graph has no way to express.",
+  }));
+}
 export const cSharpGenerator: TargetGenerator = {
   id: "csharp",
   irKind: "type-graph",
@@ -418,7 +448,10 @@ export const cSharpGenerator: TargetGenerator = {
       generateCSharpFiles(root, context, cSharpOptions),
     ).map(([path, content]) => ({ path, content }));
 
-    const diagnostics = enumDiagnostics(context.getEnums(), cSharpOptions);
+    const diagnostics = [
+      ...enumDiagnostics(context.getEnums(), cSharpOptions),
+      ...discriminatorDiagnostics(root, context),
+    ];
 
     return {
       files,
