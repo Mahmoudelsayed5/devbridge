@@ -38,6 +38,17 @@ updates:
       # deliberately, together with the `node-version` in both workflows.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # @types/vscode's version IS the minimum VS Code it describes, and vsce
+      # refuses to package when it exceeds engines.vscode. Raising it would
+      # drop users on older editors for no gain — the extension uses only
+      # commands, window and workspace — so it moves only when engines.vscode
+      # deliberately does. Its minors are what break this, not just its
+      # majors. (CI caught exactly this: "@types/vscode ^1.144.0 greater than
+      # engines.vscode ^1.90.0".)
+      - dependency-name: "@types/vscode"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   - package-ecosystem: github-actions
     directory: "/"
