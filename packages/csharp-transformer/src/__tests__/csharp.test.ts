@@ -382,3 +382,50 @@ describe("discriminated unions", () => {
     );
   });
 });
+
+describe("inheritance", () => {
+  function withBase(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "name", value: primitive("string"), optional: false },
+        { name: "nickname", value: primitive("string"), optional: true },
+      ],
+    };
+
+    // Subtype first, so the ordering helper has something to do.
+    context.registerType(cat);
+    context.registerType(pet);
+
+    return { root: cat, context };
+  }
+
+  it("names the base class", () => {
+    const { root, context } = withBase();
+    const emitted = generateCSharpFiles(root, context);
+
+    expect(emitted["Cat.cs"]).toContain("public class Cat : Pet");
+    expect(emitted["Cat.cs"]).not.toContain("Name { get; set; }");
+  });
+
+  it("flattens for positional records", () => {
+    const { root, context } = withBase();
+    const emitted = generateCSharpFiles(root, context, { style: "record" });
+
+    expect(emitted["Cat.cs"]).toContain(
+      "public record Cat(string Name, string? Nickname, int MeowVolume);",
+    );
+  });
+});

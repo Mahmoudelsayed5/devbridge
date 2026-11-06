@@ -16,7 +16,9 @@ import {
   GENERATED_HEADER,
   discriminatedUnions,
   NameAllocator,
+  allPropertiesOf,
   commentBlock,
+  orderByInheritance,
   sanitizeIdentifier,
   splitNullable,
   toCamelCase,
@@ -174,10 +176,13 @@ interface JavaField {
   readonly accessorSuffix: string;
 }
 
-function toFields(object: ObjectNode): JavaField[] {
+function toFields(
+  object: ObjectNode,
+  properties: readonly ObjectProperty[] = object.properties,
+): JavaField[] {
   const allocator = new NameAllocator([javaClassName(object.name)]);
 
-  return object.properties.map((property: ObjectProperty) => {
+  return properties.map((property: ObjectProperty) => {
     const { nullable } = splitNullable(property.value);
     const name = allocator.allocate(javaFieldName(property.name));
 
@@ -195,13 +200,17 @@ function writeClass(
   writer: CodeWriter,
   options: JavaOptions,
   isPublic: boolean,
+  context?: TransformationContext,
 ): void {
-  const fields = toFields(object);
   const modifier = isPublic ? "public " : "";
   const className = javaClassName(object.name);
   const annotate = options.jsonAnnotations === true;
+  const lookup = (name: string) => context?.getType(name);
 
+  // A Java record cannot extend a class, so the record style keeps the
+  // flattened view it has always had; only classes inherit.
   if ((options.style ?? "class") === "record") {
+    const fields = toFields(object, allPropertiesOf(object, lookup));
     const components = fields
       .map((field) => `${field.type} ${field.name}`)
       .join(", ");
@@ -211,8 +220,15 @@ function writeClass(
     return;
   }
 
+  const fields = toFields(object);
+
+  const extendsClause =
+    object.extends === undefined
+      ? ""
+      : ` extends ${javaClassName(object.extends)}`;
+
   writer.block(
-    `${modifier}class ${className} {`,
+    `${modifier}class ${className}${extendsClause} {`,
     () => {
       writer.blank();
 
@@ -374,7 +390,7 @@ function objectsOf(
 
   const seen = new Set<string>();
 
-  return objects.filter((object) => {
+  return orderByInheritance(objects).filter((object) => {
     if (seen.has(object.name)) {
       return false;
     }
@@ -409,6 +425,7 @@ function fileHeader(
   object: ObjectNode,
   options: JavaOptions,
   writer: CodeWriter,
+  context?: TransformationContext,
 ): void {
   if (options.header === true) {
     writer.line(commentBlock(GENERATED_HEADER)).blank();
@@ -418,7 +435,13 @@ function fileHeader(
     writer.line(`package ${options.packageName};`).blank();
   }
 
-  const imports: string[] = javaUtilImportLines(object.properties);
+  // A record flattens, so its imports must cover inherited properties too.
+  const emitted =
+    (options.style ?? "class") === "record"
+      ? allPropertiesOf(object, (name) => context?.getType(name))
+      : object.properties;
+
+  const imports: string[] = javaUtilImportLines(emitted);
 
   if (
     options.jsonAnnotations === true &&
@@ -457,8 +480,8 @@ export function generateJavaFiles(
   const entries = objectsOf(root, context).map((object): [string, string] => {
     const writer = new CodeWriter(options.indent ?? "    ");
 
-    fileHeader(object, options, writer);
-    writeClass(object, writer, options, true);
+    fileHeader(object, options, writer, context);
+    writeClass(object, writer, options, true, context);
 
     return [`${javaClassName(object.name)}.java`, writer.toString()];
   });
@@ -520,7 +543,7 @@ export function generateJava(
   // which is why this preview is a preview: see generateJavaFiles.
   const declarations = [
     ...enums.map((node) => (isPublic: boolean) => writeEnum(node, writer, options, isPublic)),
-    ...objects.map((object) => (isPublic: boolean) => writeClass(object, writer, options, isPublic)),
+    ...objects.map((object) => (isPublic: boolean) => writeClass(object, writer, options, isPublic, context)),
   ];
 
   declarations.forEach((emit, index) => {

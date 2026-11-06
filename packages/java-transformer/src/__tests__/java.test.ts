@@ -462,3 +462,51 @@ describe("discriminated unions", () => {
     ]);
   });
 });
+
+describe("inheritance", () => {
+  function withBase(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "name", value: primitive("string"), optional: false },
+        { name: "nickname", value: primitive("string"), optional: true },
+      ],
+    };
+
+    // Subtype first, so the ordering helper has something to do.
+    context.registerType(cat);
+    context.registerType(pet);
+
+    return { root: cat, context };
+  }
+
+  it("extends the base class", () => {
+    const { root, context } = withBase();
+    const emitted = generateJavaFiles(root, context);
+
+    expect(emitted["Cat.java"]).toContain("public class Cat extends Pet {");
+    expect(emitted["Cat.java"]).toContain("private int meowVolume;");
+    expect(emitted["Cat.java"]).not.toContain("private String name;");
+  });
+
+  it("flattens for records, which cannot extend a class in Java", () => {
+    const { root, context } = withBase();
+    const emitted = generateJavaFiles(root, context, { style: "record" });
+
+    expect(emitted["Cat.java"]).toContain(
+      "record Cat(String name, String nickname, int meowVolume)",
+    );
+  });
+});

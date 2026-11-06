@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after discriminated unions landed.
+Last updated after inheritance entered the IR.
 
 ---
 
@@ -15,7 +15,7 @@ Last updated after discriminated unions landed.
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 442, all passing |
+| Tests | 467, all passing |
 | Source / test lines | ~6,300 / ~2,800 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
@@ -361,6 +361,51 @@ points at, so every rewrite silently hit an orphan and the output was
 unchanged. Generating the output and looking at it caught it immediately;
 reading the code had not.
 
+### Phase 12 — Inheritance
+
+The structural gap the previous three phases kept running into. OpenAPI
+spells inheritance as an `allOf` whose branch is a `$ref` to a base schema,
+and until now that was *flattened*: the base's fields were copied into every
+subtype. The output compiled, which is why it survived so long, but it
+misrepresented the document — the relationship was gone, fields were
+duplicated, and nothing could be written that accepts "any Pet".
+
+`ObjectNode.extends` keeps it, and the generators say it the way their
+language does: `extends` in TypeScript and Java, `:` in C#, a base class in
+Python, and — since Go has no inheritance — an **embedded struct**, which
+both promotes the base's fields and makes `encoding/json` write them inline,
+exactly matching the wire format.
+
+**Two shapes deliberately keep flattening.** A Java `record` cannot extend a
+class, and a C# positional `record` would have to thread base parameters
+through its constructor. Rather than refuse those styles or emit something
+that does not compile, they use `allPropertiesOf` — the flattened view, which
+is what they produced before.
+
+**The find worth recording is Python's.** A dataclass lays its `__init__`
+parameters out base-first, so a base with any optional field followed by a
+subtype with a required one raises `non-default argument follows default
+argument` — at import time, not in a type checker. `@dataclass(kw_only=True)`
+across the hierarchy removes the ordering constraint entirely.
+
+That was not reasoned out in advance; it came from putting exactly that shape
+in the fixture and watching `verify:generated` fail. It is also *checkable*:
+removing `kw_only` and re-running turns the Python check red with that precise
+message, which is the difference between a comment that claims something and
+one that can be confirmed in thirty seconds.
+
+**A flaky test turned up alongside it.** The DBML suite drives the real
+`@dbml/core` parser and had exceeded vitest's 5s default once under parallel
+load — it passed in isolation and failed in the full run, which is the worst
+way for a test to be wrong. Those four now carry an explicit timeout, because
+the work is genuinely slow rather than the assertion being wrong.
+
+**What this unlocks, and does not.** The discriminator work in phase 11 left
+Java, C# and Go unable to express a polymorphic union because the IR had no
+notion of one type extending another. It does now — but nothing yet connects
+a discriminator to a base type's subtypes, so those three still emit the union
+untyped. The model is in place; the wiring is the next step, not this one.
+
 ---
 
 ## Decisions that shaped the design
@@ -446,6 +491,7 @@ state.
 | Item | Why | Size |
 | --- | --- | --- |
 | **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
+| **Polymorphic serialization** | The IR now has both inheritance and discriminators; wiring them together would give Java `@JsonTypeInfo` / `@JsonSubTypes` and C# `[JsonPolymorphic]` / `[JsonDerivedType]` | medium |
 
 **Done since this list was written:**
 
@@ -453,6 +499,7 @@ state.
   phase 9 below.
 - ~~Map types~~ — `MapNode` too; see phase 10.
 - ~~Discriminators~~ — see phase 11.
+- ~~Inheritance~~ — `allOf` is now read as `extends`; see phase 12.
 
 - ~~OpenAPI → language models~~ — done, and it is the most interesting change
   in this list; see the phase 8 section below for what it cost and what it
@@ -560,9 +607,13 @@ Stated plainly, so nobody is surprised:
 - **A document of nothing but enums is refused.** `ParseResult.root` is an
   `ObjectNode`, so a schemas file with no object type has no honest root to
   return. Rare, but real for a shared enums file.
-- **Three targets cannot express a discriminated union.** TypeScript and
-  Python narrow on a literal tag; Java, C# and Go have no sum type to hang
-  one on, so they emit the union untyped and say so.
+- **A discriminator is not wired to a base type's subtypes.** TypeScript and
+  Python narrow on a literal tag. Java and C# could now carry `@JsonTypeInfo`
+  or `[JsonPolymorphic]`, since the IR has inheritance — but nothing connects
+  the two yet, so they still emit the union untyped and say so. Go has no sum
+  type and cannot in any case.
+- **Only single inheritance.** An `allOf` naming several base schemas keeps
+  the first and merges the rest, because Java and C# allow one base apiece.
 
 ---
 

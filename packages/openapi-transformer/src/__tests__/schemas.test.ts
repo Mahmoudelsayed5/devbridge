@@ -346,10 +346,15 @@ describe("parseOpenApiSchemas", () => {
 
       const dog = typeNamed(result, "Dog");
 
-      // allOf is how 3.0 spells inheritance; an empty shell would be useless.
-      expect(dog.properties.map((p) => p.name)).toEqual(["id", "breed"]);
-      expect(propertyNamed(dog, "id").optional).toBe(false);
+      // allOf is how 3.0 spells inheritance, and it is now read as exactly
+      // that: Dog extends Base rather than copying its fields. See
+      // inheritance.test.ts; `allPropertiesOf` gives the flattened view.
+      expect(dog.extends).toBe("Base");
+      expect(dog.properties.map((p) => p.name)).toEqual(["breed"]);
       expect(propertyNamed(dog, "breed").optional).toBe(false);
+      expect(propertyNamed(typeNamed(result, "Base"), "id").optional).toBe(
+        false,
+      );
     });
 
     it("keeps a property the later allOf branch overrides", () => {

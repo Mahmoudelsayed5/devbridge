@@ -18,6 +18,15 @@ async function parseDbml(dbml: string): Promise<unknown> {
   return new Parser().parse(dbml, "dbml");
 }
 
+/**
+ * These drive a real third-party parser, whose first call also pays for
+ * loading it. That is comfortably under a second on its own but has exceeded
+ * vitest's 5s default when the whole suite runs in parallel, which showed up
+ * as a flake rather than a failure. The work is genuinely slow, so the
+ * timeout says so instead of the suite being occasionally red.
+ */
+const TIMEOUT = 30_000;
+
 const SCHEMA = `
 CREATE TABLE users (
   id INT PRIMARY KEY AUTO_INCREMENT,
@@ -52,7 +61,7 @@ describe("generated DBML is valid DBML", () => {
     const dbml = generateDbml(parseSql(SCHEMA).model, { projectName: "shop" });
 
     await expect(parseDbml(dbml)).resolves.toBeDefined();
-  });
+  }, TIMEOUT);
 
   it("parses composite keys, indexes and refs", async () => {
     const dbml = generateDbml(parseSql(SCHEMA).model);
@@ -70,7 +79,7 @@ describe("generated DBML is valid DBML", () => {
     ]);
 
     expect(schema?.refs.length).toBe(3);
-  });
+  }, TIMEOUT);
 
   it("parses quoted identifiers and schema qualification", async () => {
     const dbml = generateDbml(
@@ -80,7 +89,7 @@ describe("generated DBML is valid DBML", () => {
     );
 
     await expect(parseDbml(dbml)).resolves.toBeDefined();
-  });
+  }, TIMEOUT);
 
   it("parses every default-value shape we emit", async () => {
     const dbml = generateDbml(
@@ -96,5 +105,5 @@ describe("generated DBML is valid DBML", () => {
     );
 
     await expect(parseDbml(dbml)).resolves.toBeDefined();
-  });
+  }, TIMEOUT);
 });

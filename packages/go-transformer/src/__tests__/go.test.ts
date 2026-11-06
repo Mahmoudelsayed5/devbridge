@@ -388,3 +388,50 @@ describe("discriminated unions", () => {
     expect(diagnostics[0]?.message).toContain("petType");
   });
 });
+
+describe("inheritance", () => {
+  function withBase(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "name", value: primitive("string"), optional: false },
+        { name: "nickname", value: primitive("string"), optional: true },
+      ],
+    };
+
+    // Subtype first, so the ordering helper has something to do.
+    context.registerType(cat);
+    context.registerType(pet);
+
+    return { root: cat, context };
+  }
+
+  it("embeds the base, which Go flattens on the wire", () => {
+    const { root, context } = withBase();
+    const result = collapse(generateGo(root, context));
+
+    // Go has no inheritance; an embedded struct promotes the base's fields
+    // and encoding/json writes them inline, which is what the wire expects.
+    expect(result).toContain("type Cat struct {");
+    expect(result).toMatch(/type Cat struct \{\s*\n\s*Pet\n/);
+    expect(result).toContain("MeowVolume int");
+  });
+
+  it("gives the embedded base no json tag, so it is not nested", () => {
+    const { root, context } = withBase();
+
+    expect(generateGo(root, context)).not.toContain('Pet `json:"Pet"`');
+  });
+});

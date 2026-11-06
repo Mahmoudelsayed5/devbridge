@@ -395,3 +395,60 @@ describe("discriminated unions", () => {
     expect(typeScriptGenerator.generate(root, context).diagnostics).toBeUndefined();
   });
 });
+
+describe("inheritance", () => {
+  function withBase(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "name", value: primitive("string"), optional: false },
+        { name: "nickname", value: primitive("string"), optional: true },
+      ],
+    };
+
+    // Subtype first, so the ordering helper has something to do.
+    context.registerType(cat);
+    context.registerType(pet);
+
+    return { root: cat, context };
+  }
+
+  it("extends the base interface instead of copying its fields", () => {
+    const { root, context } = withBase();
+    const result = generateTypeScript(root, context);
+
+    expect(result).toContain("export interface Cat extends Pet {");
+    expect(result).toContain("meowVolume: number;");
+    // The base's fields stay on the base.
+    expect(result.split("interface Cat")[1]).not.toContain("name:");
+  });
+
+  it("intersects for the type-alias style, which says the same thing", () => {
+    const { root, context } = withBase();
+
+    expect(generateTypeScript(root, context, { style: "type" })).toContain(
+      "export type Cat = Pet & {",
+    );
+  });
+
+  it("declares the base before the type that extends it", () => {
+    const { root, context } = withBase();
+    const result = generateTypeScript(root, context);
+
+    expect(result.indexOf("interface Pet")).toBeLessThan(
+      result.indexOf("interface Cat"),
+    );
+  });
+});
