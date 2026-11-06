@@ -175,6 +175,32 @@ components:
         kind: { type: string }
         iban: { type: string }
 
+    # Inheritance, including the case that breaks a naive Python dataclass:
+    # the base's only field is optional (so it gets a default) and the
+    # subtype's is required, which is "non-default argument follows default
+    # argument" unless the hierarchy is keyword-only.
+    Vehicle:
+      type: object
+      properties:
+        nickname: { type: string }
+
+    Truck:
+      allOf:
+        - $ref: "#/components/schemas/Vehicle"
+        - type: object
+          required: [axles]
+          properties:
+            axles: { type: integer }
+
+    # Three deep, to prove the chain is walked rather than one level checked.
+    TipperTruck:
+      allOf:
+        - $ref: "#/components/schemas/Truck"
+        - type: object
+          required: [capacityLitres]
+          properties:
+            capacityLitres: { type: integer, format: int64 }
+
     # The implicit form: no mapping, so each branch is tagged with its own
     # schema name.
     Notification:

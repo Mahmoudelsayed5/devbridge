@@ -319,3 +319,71 @@ describe("discriminated unions", () => {
     );
   });
 });
+
+describe("inheritance", () => {
+  function withBase(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "name", value: primitive("string"), optional: false },
+        { name: "nickname", value: primitive("string"), optional: true },
+      ],
+    };
+
+    // Subtype first, so the ordering helper has something to do.
+    context.registerType(cat);
+    context.registerType(pet);
+
+    return { root: cat, context };
+  }
+
+  it("subclasses the base", () => {
+    const { root, context } = withBase();
+    const result = generatePython(root, context);
+
+    expect(result).toContain("class Cat(Pet):");
+    expect(result).toContain("meowVolume: int");
+  });
+
+  it("defines the base first, which Python requires", () => {
+    const { root, context } = withBase();
+    const result = generatePython(root, context);
+
+    expect(result.indexOf("class Pet")).toBeLessThan(result.indexOf("class Cat"));
+  });
+
+  it("makes the hierarchy keyword-only", () => {
+    const { root, context } = withBase();
+    const result = generatePython(root, context);
+
+    // Not stylistic: Pet.nickname has a default and Cat.meowVolume does not,
+    // which is "non-default argument follows default argument" otherwise.
+    expect(result).toContain("@dataclass(kw_only=True)");
+    expect(result).not.toMatch(/@dataclass\nclass (Pet|Cat)/);
+  });
+
+  it("leaves a class outside any hierarchy on the plain decorator", () => {
+    const context = new TransformationContext();
+    const root: ObjectNode = {
+      kind: "object",
+      name: "Plain",
+      properties: [{ name: "a", value: primitive("string"), optional: false }],
+    };
+
+    context.registerType(root);
+
+    expect(generatePython(root, context)).toContain("@dataclass\nclass Plain:");
+  });
+});

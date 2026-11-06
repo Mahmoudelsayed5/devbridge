@@ -50,7 +50,22 @@ export interface ObjectNode {
   readonly kind: "object";
   /** Unique, collision-free type name assigned by the parser. */
   readonly name: string;
+  /**
+   * Properties declared by this type itself. When {@link extends} is set,
+   * inherited properties are *not* repeated here — use
+   * {@link allPropertiesOf} to get the full set.
+   */
   readonly properties: readonly ObjectProperty[];
+  /**
+   * The name of the type this one extends, when the source declared one.
+   *
+   * OpenAPI spells inheritance as an `allOf` whose first branch is a `$ref`
+   * to a base schema. Flattening that — copying the base's fields into every
+   * subtype — produces models that compile but misrepresent the document:
+   * the relationship is gone, the fields are duplicated, and nothing can be
+   * written that accepts "any Pet".
+   */
+  readonly extends?: string;
 }
 
 export interface ArrayNode {

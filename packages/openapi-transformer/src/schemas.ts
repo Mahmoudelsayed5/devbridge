@@ -76,6 +76,7 @@ interface PendingObject {
   readonly kind: "object";
   readonly name: string;
   properties: readonly ObjectProperty[];
+  extends?: string;
 }
 
 /** Everything one parse needs to pass around. */
@@ -297,15 +298,66 @@ function enumType(values: readonly unknown[]): PrimitiveType {
  * merged: later branches win on a repeated property name, and `required` is
  * the union across all of them.
  */
+/**
+ * Splits an `allOf` into a base type and the branches to merge inline.
+ *
+ * The inheritance idiom is an `allOf` with a `$ref` to another schema
+ * alongside an inline object of the extra fields. That `$ref` is the base;
+ * everything else is this type's own contribution.
+ *
+ * Only a reference to a *named, object-like* schema can be a base — an
+ * inline branch has no name to extend, and a scalar has nothing to inherit.
+ * Java and C# allow one base apiece, so when a document lists several the
+ * first is the base and the rest are flattened, which is reported.
+ */
+function baseOf(
+  build: Build,
+  schema: Record<string, unknown>,
+  nameHint: string,
+): { baseName?: string; rest: unknown[] } {
+  const branches = array(schema["allOf"]) ?? [];
+  const bases: { branch: unknown; name: string }[] = [];
+  const rest: unknown[] = [];
+
+  for (const branch of branches) {
+    const key = refKey(branch);
+    const name = key === undefined ? undefined : build.names.get(key);
+
+    if (name !== undefined && isObjectLike(build, branch)) {
+      bases.push({ branch, name });
+    } else {
+      rest.push(branch);
+    }
+  }
+
+  if (bases.length === 0) {
+    return { rest };
+  }
+
+  if (bases.length > 1) {
+    build.diagnostics.push({
+      severity: "warning",
+      code: "openapi/multiple-bases",
+      message: `"${nameHint}" extends ${bases.length} schemas; only "${bases[0]?.name}" becomes a base type and the rest are merged into it.`,
+      hint: "Java and C# allow a single base class, so multiple inheritance cannot be represented.",
+    });
+
+    rest.push(...bases.slice(1).map((entry) => entry.branch));
+  }
+
+  return { baseName: bases[0]?.name, rest };
+}
+
 function flattenAllOf(
   build: Build,
   schema: Record<string, unknown>,
   depth: number,
+  branchesOverride?: readonly unknown[],
 ): { properties: Map<string, unknown>; required: Set<string> } {
   const properties = new Map<string, unknown>();
   const required = new Set<string>(stringsOf(schema["required"]));
 
-  for (const branch of array(schema["allOf"]) ?? []) {
+  for (const branch of branchesOverride ?? array(schema["allOf"]) ?? []) {
     const resolved = deref(build.document, branch);
 
     if (resolved === undefined || depth > MAX_DEPTH) {
@@ -345,7 +397,11 @@ function objectNode(
   name: string,
   depth: number,
 ): PendingObject {
-  const { properties, required } = flattenAllOf(build, schema, depth);
+  const { baseName, rest } = baseOf(build, schema, name);
+
+  // Only this type's own contribution: the base keeps its own properties,
+  // and repeating them here is what flattening used to do.
+  const { properties, required } = flattenAllOf(build, schema, depth, rest);
 
   const members: ObjectProperty[] = [...properties].map(
     ([propertyName, property]) => ({
@@ -375,7 +431,12 @@ function objectNode(
     });
   }
 
-  const node: PendingObject = { kind: "object", name, properties: members };
+  const node: PendingObject = {
+    kind: "object",
+    name,
+    properties: members,
+    ...(baseName === undefined || baseName === name ? {} : { extends: baseName }),
+  };
 
   build.allObjects.set(name, node);
 
@@ -534,6 +595,7 @@ function nodeForKey(build: Build, key: string, depth: number): TypeNode {
     // Complete the placeholder in place: anything that already captured a
     // reference to it during a cycle sees the finished properties.
     placeholder.properties = built.properties;
+    placeholder.extends = built.extends;
 
     // `built` is a throwaway — the placeholder is the node everything else
     // holds a reference to, so it is the one a later tag rewrite must find.
@@ -736,6 +798,117 @@ function buildBare(
 }
 
 /**
+ * Settles the inheritance graph once every type exists.
+ *
+ * Two things can only be checked with the whole graph in hand. A chain that
+ * loops back on itself — `A extends B extends A`, which a document can
+ * certainly say — would make every generator recurse forever, so the link
+ * that closes the loop is dropped. And a subtype that redeclares a property
+ * its base already has is shadowing rather than adding: the redeclaration is
+ * dropped so the field is emitted once, which is what the document means and
+ * what Java and C# require.
+ */
+function resolveInheritance(build: Build): void {
+  for (const node of build.allObjects.values()) {
+    if (node.extends === undefined) {
+      continue;
+    }
+
+    const seen = new Set<string>([node.name]);
+    let current: PendingObject | undefined = node;
+
+    while (current?.extends !== undefined) {
+      if (seen.has(current.extends)) {
+        build.diagnostics.push({
+          severity: "warning",
+          code: "openapi/inheritance-cycle",
+          message: `"${current.name}" extends "${current.extends}", which extends it back; the link is dropped to keep the hierarchy finite.`,
+        });
+
+        current.extends = undefined;
+
+        break;
+      }
+
+      seen.add(current.extends);
+      current = build.allObjects.get(current.extends);
+    }
+  }
+
+  for (const node of build.allObjects.values()) {
+    if (node.extends === undefined) {
+      continue;
+    }
+
+    const inherited = new Map<string, ObjectProperty>();
+
+    let base = build.allObjects.get(node.extends);
+    const guard = new Set<string>([node.name]);
+
+    while (base !== undefined && !guard.has(base.name)) {
+      guard.add(base.name);
+
+      for (const property of base.properties) {
+        if (!inherited.has(property.name)) {
+          inherited.set(property.name, property);
+        }
+      }
+
+      base = base.extends === undefined ? undefined : build.allObjects.get(base.extends);
+    }
+
+    if (inherited.size === 0) {
+      continue;
+    }
+
+    const kept = node.properties.filter((property) => {
+      const shadowed = inherited.get(property.name);
+
+      if (shadowed === undefined) {
+        return true;
+      }
+
+      // A redeclaration with a *different* type is worth saying out loud:
+      // the subtype's narrowing is lost, since the field lives on the base.
+      if (typeKey(shadowed.value) !== typeKey(property.value)) {
+        build.diagnostics.push({
+          severity: "warning",
+          code: "openapi/narrowed-inherited-property",
+          message: `"${node.name}" redeclares the inherited property "${property.name}" with a different type; the base declaration is used.`,
+          hint: "A subtype cannot change the type of a field it inherits in Java or C#.",
+        });
+      }
+
+      return false;
+    });
+
+    node.properties = kept;
+  }
+}
+
+/** True when `node` inherits a property of this name from a base. */
+function inheritsProperty(
+  build: Build,
+  node: PendingObject,
+  propertyName: string,
+): boolean {
+  const seen = new Set<string>([node.name]);
+  let base = node.extends === undefined ? undefined : build.allObjects.get(node.extends);
+
+  while (base !== undefined && !seen.has(base.name)) {
+    seen.add(base.name);
+
+    if (base.properties.some((property) => property.name === propertyName)) {
+      return true;
+    }
+
+    base = base.extends === undefined ? undefined : build.allObjects.get(base.extends);
+  }
+
+  return false;
+}
+
+/**
  * Narrows each discriminated branch's tag property to the literal it must be.
  *
  * This is what makes the union usable: `Cat` with `petType: string` tells a
@@ -761,6 +934,14 @@ function applyTagRewrites(build: Build): void {
     );
 
     if (index === -1) {
+      // Inherited rather than missing: the tag lives on the base, which is
+      // the ordinary shape of OpenAPI's inheritance idiom. Nothing is wrong
+      // and nothing is narrowed — a subtype cannot re-type an inherited
+      // field in Java or C#.
+      if (inheritsProperty(build, target, rewrite.propertyName)) {
+        continue;
+      }
+
       // The spec requires the tag property to be declared on the branch. A
       // document that omits it is not rejected — the union is still correct —
       // but the narrowing cannot be added without inventing a field.
@@ -857,6 +1038,9 @@ export function parseOpenApiSchemas(
     nodeForKey(build, key, 0);
   }
 
+  // Inheritance first: the tag rewrite below needs to know whether a tag
+  // property is this type's own or comes from a base.
+  resolveInheritance(build);
   applyTagRewrites(build);
 
   const types = build.context.getTypes();

@@ -11,6 +11,8 @@ import type {
 import {
   CodeWriter,
   GENERATED_HEADER,
+  inHierarchy,
+  orderByInheritance,
   NameAllocator,
   commentBlock,
   sanitizeIdentifier,
@@ -228,11 +230,23 @@ function writeClass(
   object: ObjectNode,
   writer: CodeWriter,
   options: PythonOptions,
+  inherits = false,
 ): void {
   const fields = toFields(object, options);
 
-  writer.line("@dataclass");
-  writer.line(`class ${pythonClassName(object.name)}:`);
+  // `kw_only` is required, not stylistic, wherever inheritance is involved.
+  // A dataclass lays its __init__ parameters out base-first, so a base with
+  // any defaulted field followed by a subtype with a required one raises
+  // "non-default argument follows default argument" at import time. Making
+  // the whole hierarchy keyword-only removes the ordering constraint.
+  writer.line(inherits ? "@dataclass(kw_only=True)" : "@dataclass");
+
+  const base =
+    object.extends === undefined
+      ? ""
+      : `(${pythonClassName(object.extends)})`;
+
+  writer.line(`class ${pythonClassName(object.name)}${base}:`);
   writer.indented(() => {
     if (fields.length === 0) {
       writer.line("pass");
@@ -253,9 +267,12 @@ export function generatePython(
   context: TransformationContext,
   options: PythonOptions = {},
 ): string {
-  const objects = context.hasType(root.name)
-    ? context.getTypes()
-    : [root, ...context.getTypes()];
+  // A base must be defined before the class that extends it.
+  const objects = orderByInheritance(
+    context.hasType(root.name)
+      ? context.getTypes()
+      : [root, ...context.getTypes()],
+  );
 
   const typingImports = new Set<string>();
 
@@ -297,7 +314,7 @@ export function generatePython(
 
   for (const object of objects) {
     writer.line("").line("");
-    writeClass(object, writer, options);
+    writeClass(object, writer, options, inHierarchy(object, objects));
   }
 
   return writer.toString();

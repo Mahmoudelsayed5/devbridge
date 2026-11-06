@@ -254,6 +254,11 @@ schema simply states:
   which property carries the answer, so TypeScript gets `petType: "cat"` and
   narrows the union in a `switch` — a compiler-checked exhaustive match
   instead of a cast and a hope.
+- **Is this a kind of that?** A spec that says `Cat` is a `Pet` gets
+  `class Cat extends Pet`, not a Cat with every Pet field copied into it. The
+  difference shows up the first time you want a function that takes any Pet,
+  or the first time someone adds a field to the base and has to remember the
+  nine subtypes that duplicated it.
 
 Recursive structures work too — a category tree, a comment thread — which no
 number of sample payloads can express.
@@ -344,7 +349,7 @@ reserve AI for things deterministic code genuinely cannot do, and keep it
 clearly separated from the conversion path.
 
 **"How do I know it works?"**
-442 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
+467 automated tests. CI on both Ubuntu and Windows. Generated code compiled by
 real compilers on every commit. That's a stronger claim than most tools in this
 category can make.
 

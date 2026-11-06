@@ -1,6 +1,7 @@
 import type {
   Diagnostic,
   EnumNode,
+  ObjectProperty,
   GenerateResult,
   GeneratedFile,
   GeneratorOptions,
@@ -15,7 +16,9 @@ import {
   GENERATED_HEADER,
   discriminatedUnions,
   NameAllocator,
+  allPropertiesOf,
   commentBlock,
+  orderByInheritance,
   sanitizeIdentifier,
   splitNullable,
   toPascalCase,
@@ -118,10 +121,13 @@ interface CSharpProperty {
   readonly required: boolean;
 }
 
-function toProperties(object: ObjectNode): CSharpProperty[] {
+function toProperties(
+  object: ObjectNode,
+  properties: readonly ObjectProperty[] = object.properties,
+): CSharpProperty[] {
   const allocator = new NameAllocator([csharpIdentifier(object.name)]);
 
-  return object.properties.map((property) => {
+  return properties.map((property) => {
     const { nullable } = splitNullable(property.value);
     const optional = property.optional || nullable;
     const base = toCSharpType(property.value);
@@ -283,14 +289,19 @@ function writeType(
   object: ObjectNode,
   writer: CodeWriter,
   options: CSharpOptions,
+  context?: TransformationContext,
 ): void {
-  const properties = toProperties(object);
   const annotate = options.jsonAnnotations ?? true;
   const useRequired = options.useRequired ?? true;
   const name = csharpIdentifier(object.name);
+  const lookup = (typeName: string) => context?.getType(typeName);
 
+  // A positional record would have to thread base parameters through its
+  // constructor, so the record style keeps the flattened view; only
+  // classes inherit.
   if ((options.style ?? "class") === "record") {
-    const components = properties
+    const flattened = toProperties(object, allPropertiesOf(object, lookup));
+    const components = flattened
       .map((property) => `${property.type} ${property.name}`)
       .join(", ");
 
@@ -299,8 +310,15 @@ function writeType(
     return;
   }
 
+  const properties = toProperties(object);
+
+  const baseClause =
+    object.extends === undefined
+      ? ""
+      : ` : ${csharpIdentifier(object.extends)}`;
+
   // Allman braces, which is the dominant C# style.
-  writer.line(`public class ${name}`);
+  writer.line(`public class ${name}${baseClause}`);
   writer.line("{");
   writer.indented(() => {
     properties.forEach((property, index) => {
@@ -326,9 +344,11 @@ function objectsOf(
   root: ObjectNode,
   context: TransformationContext,
 ): readonly ObjectNode[] {
-  return context.hasType(root.name)
-    ? context.getTypes()
-    : [root, ...context.getTypes()];
+  return orderByInheritance(
+    context.hasType(root.name)
+      ? context.getTypes()
+      : [root, ...context.getTypes()],
+  );
 }
 
 function writePreamble(
@@ -365,7 +385,7 @@ export function generateCSharp(
 
   const declarations = [
     ...enums.map((node) => () => writeEnum(node, writer, options)),
-    ...objects.map((object) => () => writeType(object, writer, options)),
+    ...objects.map((object) => () => writeType(object, writer, options, context)),
   ];
 
   declarations.forEach((emit, index) => {
@@ -399,7 +419,7 @@ export function generateCSharpFiles(
     const writer = new CodeWriter(options.indent ?? "    ");
 
     writePreamble([object], [], writer, options);
-    writeType(object, writer, options);
+    writeType(object, writer, options, context);
 
     return [`${csharpIdentifier(object.name)}.cs`, writer.toString()];
   });

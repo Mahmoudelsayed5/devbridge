@@ -8,7 +8,12 @@ import type {
   TransformationContext,
   TypeNode,
 } from "@devbridge/core";
-import { CodeWriter, GENERATED_HEADER, commentBlock } from "@devbridge/core";
+import {
+  CodeWriter,
+  GENERATED_HEADER,
+  commentBlock,
+  orderByInheritance,
+} from "@devbridge/core";
 
 export interface TypeScriptOptions extends GeneratorOptions {
   /** Emit `export` on every declaration. Defaults to true. */
@@ -149,10 +154,16 @@ function declare(
   const readonlyPrefix = options.readonlyProperties === true ? "readonly " : "";
   const style = options.style ?? "interface";
 
+  // An interface extends; a type alias intersects. Both say the same thing
+  // in TypeScript, so the style option keeps working either way.
   const open =
     style === "type"
-      ? `${exported}type ${object.name} = {`
-      : `${exported}interface ${object.name} {`;
+      ? object.extends === undefined
+        ? `${exported}type ${object.name} = {`
+        : `${exported}type ${object.name} = ${object.extends} & {`
+      : object.extends === undefined
+        ? `${exported}interface ${object.name} {`
+        : `${exported}interface ${object.name} extends ${object.extends} {`;
 
   writer.block(
     open,
@@ -190,9 +201,11 @@ export function generateTypeScript(
     );
   }
 
-  const objects = context.hasType(root.name)
-    ? context.getTypes()
-    : [root, ...context.getTypes()];
+  const objects = orderByInheritance(
+    context.hasType(root.name)
+      ? context.getTypes()
+      : [root, ...context.getTypes()],
+  );
 
   const writer = new CodeWriter(options.indent ?? "  ");
 

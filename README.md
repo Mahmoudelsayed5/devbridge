@@ -144,9 +144,55 @@ holds wherever `Cat` appears.
 
 **Java, C# and Go cannot express this**, and say so rather than pretending.
 All three would need the branches to share a declared base type — a sealed
-interface, or a class carrying `[JsonPolymorphic]` — and the type graph has
-no notion of one object type extending another. They emit the union untyped,
-as before, with a warning naming the discriminator that was lost.
+interface, or a class carrying `[JsonPolymorphic]`. The IR now has
+inheritance (below), so the missing piece is no longer the model but the
+wiring: nothing yet connects a discriminator to a base type's subtypes. They
+emit the union untyped, with a warning naming the discriminator that was
+lost.
+
+### Inheritance
+
+OpenAPI spells inheritance as an `allOf` whose branch is a `$ref` to a base
+schema:
+
+```yaml
+Cat:
+  allOf:
+    - $ref: "#/components/schemas/Pet"
+    - type: object
+      properties: { meowVolume: { type: integer } }
+```
+
+Flattening that — copying `Pet`'s fields into `Cat` — produces models that
+compile but misrepresent the document: the relationship is gone, the fields
+are duplicated in every subtype, and nothing can be written that accepts "any
+Pet". `ObjectNode.extends` keeps it.
+
+| Target | Rendering |
+| --- | --- |
+| TypeScript | `interface Cat extends Pet` (or `type Cat = Pet & {…}` for the alias style) |
+| Java | `class Cat extends Pet` |
+| C# | `class Cat : Pet` |
+| Python | `class Cat(Pet)` |
+| Go | an **embedded struct** — Go has no inheritance, and embedding both promotes the base's fields and makes `encoding/json` write them inline, which is what the wire format expects |
+
+Two cases do not inherit, and flatten instead: a **Java `record`**, which
+cannot extend a class, and a **C# positional `record`**, which would have to
+thread base parameters through its constructor. `allPropertiesOf` gives
+generators that flattened view.
+
+Three details that are not obvious:
+
+- **Python's hierarchy is keyword-only.** `@dataclass(kw_only=True)` is not a
+  style choice: a dataclass lays its `__init__` parameters out base-first, so
+  a base with any optional field followed by a subtype with a required one is
+  `non-default argument follows default argument` at import time. The fixture
+  contains exactly that shape, and removing `kw_only` makes the Python check
+  fail.
+- **Bases are declared before subtypes.** Python requires it; the rest read
+  better for it.
+- **Only one base.** Java and C# allow a single base class, so a document
+  listing several keeps the first and merges the rest, reporting it.
 
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
@@ -175,6 +221,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 9 | Enums in the IR | done |
 | 10 | Maps in the IR | done |
 | 11 | Discriminated unions | done |
+| 12 | Inheritance (`allOf` → `extends`) | done |
 
 ## Packages
 
@@ -268,7 +315,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 442 tests pass.
+14 packages build clean, 467 tests pass.
 
 Linting is oxlint rather than ESLint, because typescript-eslint does not
 support TypeScript 7 and this repo targets the native port:
