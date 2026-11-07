@@ -18,6 +18,7 @@ Adding a target language is a generator task, not another end-to-end converter.
 how to explain it to someone else.
 🗺️ **[Roadmap and build history](docs/roadmap.md)** — what exists, the
 decisions behind it, and what comes next.
+📓 **[Changelog](CHANGELOG.md)** — what changed in each release.
 
 ## Three IRs, not one
 
