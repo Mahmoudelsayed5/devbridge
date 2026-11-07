@@ -16,7 +16,7 @@
     "dist"
   ],
   "devDependencies": {
-    "@dbml/core": "^11.0.0",
+    "@dbml/core": "^11.0.1",
     "@devbridge/sql-transformer": "workspace:*",
     "vitest": "^5.0.5"
   },
