@@ -123,6 +123,35 @@ any target is chosen, so it must only reject what every reading would.
   neither fact is discoverable from the code alone.
 - Keep the diff in the style of the file around it.
 
+## Cutting a release
+
+A release is made by pushing a tag. The tag is the decision;
+`.github/workflows/release.yml` is only the mechanism.
+
+1. Add the version's section to [CHANGELOG.md](CHANGELOG.md), moving
+   anything under `## [Unreleased]` into it.
+2. Set the version in `apps/vscode/package.json` (and the other
+   `package.json` files, which are kept in step).
+3. Merge that.
+4. Tag the merge commit and push it:
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0
+```
+
+The workflow then re-runs lint, build and tests against the tagged commit,
+packages the extension, and creates a GitHub release with the `.vsix`
+attached and the CHANGELOG section as its notes.
+
+Three things make it fail rather than publish something wrong: a tag that
+does not match the extension's version, a version with no CHANGELOG entry,
+and any test failure. All three are checked before the release is created.
+
+**Nothing is published to npm or the VS Code Marketplace.** Both need an
+account and a settled name, and neither decision has been made — see
+"Nothing is released yet" in [docs/roadmap.md](docs/roadmap.md). The
+packages are all `private: true`, so a stray `pnpm publish` is refused too.
+
 ## Reporting bugs
 
 For a transformation bug, the input is the bug report. Include the schema or

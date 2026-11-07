@@ -1,0 +1,80 @@
+name: Release
+
+# Releases are cut by pushing a tag, so the tag is the decision and this
+# workflow is only the mechanism. Nothing here publishes to npm or to the
+# VS Code Marketplace — both need an account and a name decision that have
+# not been made. See docs/roadmap.md, "Nothing is released yet".
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and publish the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Enable corepack
+        run: corepack enable pnpm
+
+      # Checked before anything is built: a mismatched tag is a mistake to
+      # catch in seconds, not after a full build and test run.
+      - name: Verify the tag matches the extension's version
+        run: |
+          manifest="$(node -p "require('./apps/vscode/package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+
+          if [ "$manifest" != "$tag" ]; then
+            echo "Tag ${tag} does not match apps/vscode/package.json (${manifest})." >&2
+            exit 1
+          fi
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The tagged commit has already been through CI on main, but a release
+      # is the one artifact that cannot be quietly fixed afterwards, so it is
+      # rebuilt and retested here rather than trusted.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Package VS Code extension
+        run: pnpm package:vscode
+
+      # Fails when the tag's version has no CHANGELOG entry, which is the
+      # useful failure: better a red release than one with empty notes.
+      - name: Read the release notes from CHANGELOG.md
+        run: |
+          node scripts/changelog-section.mjs "${GITHUB_REF_NAME}" > release-notes.md
+          echo "--- notes ---"
+          cat release-notes.md
+
+      # The packaged file is version-less on disk; the asset should say which
+      # version it is, since people download several over time.
+      - name: Name the asset after the version
+        run: |
+          cp apps/vscode/devbridge.vsix "devbridge-${GITHUB_REF_NAME#v}.vsix"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            "devbridge-${GITHUB_REF_NAME#v}.vsix"
