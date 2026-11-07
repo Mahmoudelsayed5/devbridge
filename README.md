@@ -142,13 +142,10 @@ through `Literal["cat"]`. Narrowing the branch is sound beyond the union
 itself — the discriminator asserts a Cat's tag is *always* `"cat"` — so it
 holds wherever `Cat` appears.
 
-**Java, C# and Go cannot express this**, and say so rather than pretending.
-All three would need the branches to share a declared base type — a sealed
-interface, or a class carrying `[JsonPolymorphic]`. The IR now has
-inheritance (below), so the missing piece is no longer the model but the
-wiring: nothing yet connects a discriminator to a base type's subtypes. They
-emit the union untyped, with a warning naming the discriminator that was
-lost.
+**Java, C# and Go cannot express a bare `oneOf`**, because they need the
+branches to share a declared base type and a `oneOf` gives them none. They
+emit the union untyped and say so. The fix is to give the branches a shared
+base — which is the next section.
 
 ### Inheritance
 
@@ -194,6 +191,55 @@ Three details that are not obvious:
 - **Only one base.** Java and C# allow a single base class, so a document
   listing several keeps the first and merges the rest, reporting it.
 
+### Polymorphic serialization
+
+A `discriminator` declared on an **object schema** — rather than on a
+`oneOf` — says that this type's *subtypes* are told apart by one property.
+That is the form Java and C# can serialise, because their annotations go on
+a base type and there is finally one to put them on:
+
+```java
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "petType", visible = true)
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = Cat.class, name = "cat"),
+    @JsonSubTypes.Type(value = Dog.class, name = "dog")
+})
+public class Pet { ... }
+```
+
+```csharp
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "petType")]
+[JsonDerivedType(typeof(Cat), "cat")]
+[JsonDerivedType(typeof(Dog), "dog")]
+public class Pet { ... }
+```
+
+With no `mapping`, the subtypes are simply the types that extend the base,
+each tagged with its own schema name.
+
+TypeScript and Python narrow instead: the tag is declared on the base, and a
+subtype restates it with a literal, which is what makes the hierarchy
+discriminate. **The subtlety is a hierarchy deeper than two.** With
+`TipperTruck extends Truck`, narrowing `Truck.kind` to just `"truck"` is
+wrong — a `TipperTruck` *is* a `Truck` and carries `"tipper"`. A type's tag
+is therefore the union of its own value and every descendant's, and only a
+leaf collapses to one:
+
+```ts
+export interface Truck extends Vehicle { kind: "truck" | "tipper"; … }
+export interface TipperTruck extends Truck { kind: "tipper"; … }
+```
+
+Two things to know:
+
+- **Jackson annotations are opt-in** (`--annotations`, or the web app's
+  toggle). Jackson is a third-party dependency and `javac` has no classpath
+  for it, so emitting them by default would produce code that does not
+  compile. C# needs no flag — `System.Text.Json` is in the base library.
+- **`verify:generated` proves these compile, not that they round-trip.**
+  Serializer configuration fails at run time, not build time, which is a
+  real limit of the check.
+
 Everything else *is* shared — naming, diagnostics, `CodeWriter`, the
 registries and the CLI and web surfaces. Each parser and generator declares
 an `irKind`, and the engine refuses to pair mismatched ones with a message
@@ -222,6 +268,7 @@ data shapes. Available targets for json: typescript, java, go, python, csharp.
 | 10 | Maps in the IR | done |
 | 11 | Discriminated unions | done |
 | 12 | Inheritance (`allOf` → `extends`) | done |
+| 13 | Polymorphic serialization (Java, C#) | done |
 
 ## Packages
 
@@ -315,7 +362,7 @@ pnpm test
 ```
 
 Verified on Node v24.21.0, pnpm 12.8.1, TypeScript 7.0.2, Vitest 5.0.2:
-14 packages build clean, 467 tests pass.
+14 packages build clean, 489 tests pass.
 
 Linting is oxlint rather than ESLint, because typescript-eslint does not
 support TypeScript 7 and this repo targets the native port:

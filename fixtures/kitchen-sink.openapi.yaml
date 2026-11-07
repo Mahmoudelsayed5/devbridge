@@ -179,10 +179,19 @@ components:
     # the base's only field is optional (so it gets a default) and the
     # subtype's is required, which is "non-default argument follows default
     # argument" unless the hierarchy is keyword-only.
+    # Also a polymorphic base: C# emits [JsonPolymorphic] / [JsonDerivedType]
+    # here, and Java the Jackson equivalents when annotations are on. The
+    # mapping is explicit so it can name an indirect subtype too.
     Vehicle:
       type: object
       properties:
         nickname: { type: string }
+        kind: { type: string }
+      discriminator:
+        propertyName: kind
+        mapping:
+          truck: "#/components/schemas/Truck"
+          tipper: "#/components/schemas/TipperTruck"
 
     Truck:
       allOf:

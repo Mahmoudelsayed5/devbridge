@@ -13,6 +13,7 @@ import {
   GENERATED_HEADER,
   inHierarchy,
   orderByInheritance,
+  tagFor,
   NameAllocator,
   commentBlock,
   sanitizeIdentifier,
@@ -231,8 +232,16 @@ function writeClass(
   writer: CodeWriter,
   options: PythonOptions,
   inherits = false,
+  context?: TransformationContext,
 ): void {
   const fields = toFields(object, options);
+
+  // A subtype inherits its discriminator tag from the base, and restating
+  // it with a Literal is what lets a type checker narrow the union.
+  const tag =
+    context === undefined
+      ? undefined
+      : tagFor(object, (name) => context.getType(name), context.getTypes());
 
   // `kw_only` is required, not stylistic, wherever inheritance is involved.
   // A dataclass lays its __init__ parameters out base-first, so a base with
@@ -248,7 +257,21 @@ function writeClass(
 
   writer.line(`class ${pythonClassName(object.name)}${base}:`);
   writer.indented(() => {
-    if (fields.length === 0) {
+    if (tag !== undefined && tag.values.length > 0) {
+      const annotation = `Literal[${tag.values
+        .map((value) => JSON.stringify(value))
+        .join(", ")}]`;
+
+      // Only a leaf has one possible tag, so only a leaf gets a default.
+      const assigned =
+        tag.values.length === 1 ? ` = ${JSON.stringify(tag.values[0])}` : "";
+
+      writer.line(
+        `${pythonFieldName(tag.propertyName, options)}: ${annotation}${assigned}`,
+      );
+    }
+
+    if (fields.length === 0 && tag === undefined) {
       writer.line("pass");
 
       return;
@@ -277,6 +300,10 @@ export function generatePython(
   const typingImports = new Set<string>();
 
   for (const object of objects) {
+    if (tagFor(object, (name) => context.getType(name), context.getTypes()) !== undefined) {
+      typingImports.add("Literal");
+    }
+
     for (const property of object.properties) {
       collectImports(property.value, typingImports);
 
@@ -314,7 +341,7 @@ export function generatePython(
 
   for (const object of objects) {
     writer.line("").line("");
-    writeClass(object, writer, options, inHierarchy(object, objects));
+    writeClass(object, writer, options, inHierarchy(object, objects), context);
   }
 
   return writer.toString();

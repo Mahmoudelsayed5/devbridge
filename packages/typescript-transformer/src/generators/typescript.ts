@@ -13,6 +13,7 @@ import {
   GENERATED_HEADER,
   commentBlock,
   orderByInheritance,
+  tagFor,
 } from "@devbridge/core";
 
 export interface TypeScriptOptions extends GeneratorOptions {
@@ -145,10 +146,30 @@ function declareEnum(
   });
 }
 
+/**
+ * The discriminator tag a subtype should narrow, when it inherits one.
+ *
+ * In the inheritance idiom the tag is declared on the base, so the subtype
+ * has no property of its own to narrow — but TypeScript lets an extending
+ * interface restate an inherited property with a narrower type, and `"cat"`
+ * is narrower than `string`. That restatement is what makes `Cat | Dog`
+ * discriminate. Java and C# cannot re-type an inherited field, which is why
+ * this is done per target rather than in the IR.
+ */
+function inheritedTag(
+  object: ObjectNode,
+  context?: TransformationContext,
+): { propertyName: string; values: string[] } | undefined {
+  return context === undefined
+    ? undefined
+    : tagFor(object, (name) => context.getType(name), context.getTypes());
+}
+
 function declare(
   object: ObjectNode,
   writer: CodeWriter,
   options: TypeScriptOptions,
+  context?: TransformationContext,
 ): void {
   const exported = (options.exportTypes ?? true) ? "export " : "";
   const readonlyPrefix = options.readonlyProperties === true ? "readonly " : "";
@@ -168,8 +189,12 @@ function declare(
   writer.block(
     open,
     () => {
-      if (object.properties.length === 0) {
-        return;
+      const tag = inheritedTag(object, context);
+
+      if (tag !== undefined && tag.values.length > 0) {
+        writer.line(
+          `${readonlyPrefix}${propertyKey(tag.propertyName)}: ${tag.values.map((value) => JSON.stringify(value)).join(" | ")};`,
+        );
       }
 
       for (const property of object.properties) {
@@ -217,7 +242,7 @@ export function generateTypeScript(
   // `status: Status` benefits from having just seen what a Status is.
   const declarations = [
     ...context.getEnums().map((node) => () => declareEnum(node, writer, options)),
-    ...objects.map((object) => () => declare(object, writer, options)),
+    ...objects.map((object) => () => declare(object, writer, options, context)),
   ];
 
   declarations.forEach((emit, index) => {

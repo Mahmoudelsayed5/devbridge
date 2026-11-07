@@ -189,6 +189,15 @@ function usingsFor(
     usings.push("using System.Text.Json.Serialization;");
   }
 
+  // A polymorphic base carries [JsonPolymorphic], from the same using.
+  const polymorphic =
+    (options.jsonAnnotations ?? true) &&
+    objects.some((object) => object.discriminator !== undefined);
+
+  if (polymorphic && !usings.includes("using System.Text.Json.Serialization;")) {
+    usings.push("using System.Text.Json.Serialization;");
+  }
+
   // A string enum carries [JsonConverter], which lives in the same using.
   const enumNeedsUsing =
     (options.jsonAnnotations ?? true) &&
@@ -285,6 +294,35 @@ function enumDiagnostics(
   });
 }
 
+/**
+ * The System.Text.Json attributes that make a base deserialise
+ * polymorphically, available since .NET 7.
+ *
+ * `[JsonPolymorphic]` names the tag property and `[JsonDerivedType]`
+ * maps each value to a class. Both go on the *base*, which is why this
+ * had to wait for the type graph to have inheritance.
+ */
+function writePolymorphicAttributes(
+  object: ObjectNode,
+  writer: CodeWriter,
+): void {
+  const discriminator = object.discriminator;
+
+  if (discriminator === undefined) {
+    return;
+  }
+
+  writer.line(
+    `[JsonPolymorphic(TypeDiscriminatorPropertyName = ${JSON.stringify(discriminator.propertyName)})]`,
+  );
+
+  for (const entry of discriminator.mapping) {
+    writer.line(
+      `[JsonDerivedType(typeof(${csharpIdentifier(entry.typeName)}), ${JSON.stringify(entry.value)})]`,
+    );
+  }
+}
+
 function writeType(
   object: ObjectNode,
   writer: CodeWriter,
@@ -311,6 +349,10 @@ function writeType(
   }
 
   const properties = toProperties(object);
+
+  if (annotate) {
+    writePolymorphicAttributes(object, writer);
+  }
 
   const baseClause =
     object.extends === undefined
@@ -442,14 +484,24 @@ function discriminatorDiagnostics(
     ? context.getTypes()
     : [root, ...context.getTypes()];
 
-  return discriminatedUnions(all).map((discriminator) => ({
+  // A union whose branches share an annotated base *is* expressible now,
+  // so only report the ones that are not.
+  const handled = new Set(
+    all
+      .filter((object) => object.discriminator !== undefined)
+      .map((object) => object.discriminator?.propertyName),
+  );
+
+  return discriminatedUnions(all)
+    .filter((discriminator) => !handled.has(discriminator.propertyName))
+    .map((discriminator) => ({
     severity: "warning" as const,
     code: "csharp/discriminator-unsupported",
     message: `The union discriminated by "${discriminator.propertyName}" (${discriminator.mapping
       .map((entry) => entry.value)
       .join(", ")}) is emitted untyped.`,
-    hint: "C# would need the branches to share a base type carrying [JsonPolymorphic], which the type graph has no way to express.",
-  }));
+      hint: "Give the branches a shared base schema carrying the discriminator, and [JsonPolymorphic] is emitted on it.",
+    }));
 }
 export const cSharpGenerator: TargetGenerator = {
   id: "csharp",

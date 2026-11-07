@@ -510,3 +510,103 @@ describe("inheritance", () => {
     );
   });
 });
+
+describe("polymorphic serialization", () => {
+  function polymorphic(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "petType", value: primitive("string"), optional: false },
+      ],
+      discriminator: {
+        propertyName: "petType",
+        mapping: [
+          { value: "cat", typeName: "Cat" },
+          { value: "dog", typeName: "Dog" },
+        ],
+      },
+    };
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      extends: "Pet",
+      properties: [
+        { name: "breed", value: primitive("string"), optional: true },
+      ],
+    };
+
+    context.registerType(pet);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root: pet, context };
+  }
+
+  it("annotates the base with the Jackson type info", () => {
+    const { root, context } = polymorphic();
+    const emitted = generateJavaFiles(root, context, { jsonAnnotations: true });
+
+    expect(emitted["Pet.java"]).toContain(
+      'property = "petType", visible = true',
+    );
+
+    expect(emitted["Pet.java"]).toContain(
+      '@JsonSubTypes.Type(value = Cat.class, name = "cat")',
+    );
+
+    expect(emitted["Pet.java"]).toContain(
+      '@JsonSubTypes.Type(value = Dog.class, name = "dog")',
+    );
+  });
+
+  it("imports the annotations it uses", () => {
+    const { root, context } = polymorphic();
+    const emitted = generateJavaFiles(root, context, { jsonAnnotations: true });
+
+    expect(emitted["Pet.java"]).toContain(
+      "import com.fasterxml.jackson.annotation.JsonTypeInfo;",
+    );
+
+    expect(emitted["Pet.java"]).toContain(
+      "import com.fasterxml.jackson.annotation.JsonSubTypes;",
+    );
+  });
+
+  it("annotates only the base, not the subtypes", () => {
+    const { root, context } = polymorphic();
+    const emitted = generateJavaFiles(root, context, { jsonAnnotations: true });
+
+    expect(emitted["Cat.java"]).not.toContain("@JsonTypeInfo");
+  });
+
+  it("emits nothing without annotations, Jackson being a dependency", () => {
+    const { root, context } = polymorphic();
+
+    // javac has no Jackson on its classpath, which is why this is opt-in.
+    expect(generateJavaFiles(root, context)["Pet.java"]).not.toContain(
+      "@JsonTypeInfo",
+    );
+  });
+
+  it("stops reporting the union as unsupported", () => {
+    const { root, context } = polymorphic();
+    const diagnostics = javaGenerator.generate(root, context).diagnostics ?? [];
+
+    expect(diagnostics.map((d) => d.code)).not.toContain(
+      "java/discriminator-unsupported",
+    );
+  });
+});

@@ -136,6 +136,87 @@ export function orderByInheritance(
   return ordered;
 }
 
+/**
+ * The discriminator tag narrowing that applies to `node`, if any.
+ *
+ * The tag lives on the base — that is what a discriminator *is* — so a
+ * subtype walks upwards to find the value identifying it. The subtlety is
+ * the `values` array, and it is not decoration: in a hierarchy more than two
+ * deep, a type's tag is the union of **its own value and every descendant's**.
+ *
+ * `TipperTruck extends Truck` with tags `tipper` and `truck` makes that
+ * concrete. Narrowing `Truck.kind` to just `"truck"` is wrong, because a
+ * `TipperTruck` *is* a `Truck` and carries `"tipper"` — and TypeScript says
+ * so outright: `Interface 'TipperTruck' incorrectly extends interface
+ * 'Truck'`. The union is the honest type, and a leaf collapses to the single
+ * value that makes a `switch` narrow.
+ *
+ * Undefined when no ancestor is a polymorphic base naming this type or any
+ * type below it.
+ */
+export function tagFor(
+  node: ObjectNode,
+  lookup: TypeLookup,
+  types: Iterable<ObjectNode> = [],
+): { propertyName: string; values: string[] } | undefined {
+  for (const ancestor of ancestorsOf(node, lookup)) {
+    const discriminator = ancestor.discriminator;
+
+    if (discriminator === undefined) {
+      continue;
+    }
+
+    const own = discriminator.mapping.find(
+      (entry) => entry.typeName === node.name,
+    );
+
+    const below = new Set(
+      descendantsOf(node, types).map((descendant) => descendant.name),
+    );
+
+    const values = discriminator.mapping
+      .filter(
+        (entry) => entry.typeName === node.name || below.has(entry.typeName),
+      )
+      .map((entry) => entry.value);
+
+    if (own === undefined && values.length === 0) {
+      continue;
+    }
+
+    return { propertyName: discriminator.propertyName, values };
+  }
+
+  return undefined;
+}
+
+/** Every type below `node` in the hierarchy, at any depth. */
+export function descendantsOf(
+  node: ObjectNode,
+  types: Iterable<ObjectNode>,
+): ObjectNode[] {
+  const all = [...types];
+  const found: ObjectNode[] = [];
+  const frontier = [node.name];
+  const seen = new Set<string>([node.name]);
+
+  while (frontier.length > 0) {
+    const current = frontier.pop() as string;
+
+    for (const candidate of all) {
+      if (candidate.extends !== current || seen.has(candidate.name)) {
+        continue;
+      }
+
+      seen.add(candidate.name);
+      found.push(candidate);
+      frontier.push(candidate.name);
+    }
+  }
+
+  return found;
+}
+
 /** True when `node` takes part in an inheritance relationship either way. */
 export function inHierarchy(
   node: ObjectNode,
