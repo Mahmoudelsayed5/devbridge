@@ -66,6 +66,18 @@ export interface ObjectNode {
    * written that accepts "any Pet".
    */
   readonly extends?: string;
+  /**
+   * Present when this type is a polymorphic **base**: one property's value
+   * says which subtype a payload actually is.
+   *
+   * A discriminator can be declared in two places, and they are not the same
+   * shape. On a `oneOf` it describes a union of independent types, which is
+   * what {@link UnionNode.discriminator} carries. On an object schema it
+   * describes *this* type's subtypes — the ones that `extends` it — and that
+   * is the form Java and C# can actually serialise, because their
+   * annotations go on a base type and there is finally one to put them on.
+   */
+  readonly discriminator?: Discriminator;
 }
 
 export interface ArrayNode {

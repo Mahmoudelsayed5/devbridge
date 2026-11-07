@@ -387,3 +387,62 @@ describe("inheritance", () => {
     expect(generatePython(root, context)).toContain("@dataclass\nclass Plain:");
   });
 });
+
+describe("polymorphic hierarchies", () => {
+  function polymorphic(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "petType", value: primitive("string"), optional: false },
+      ],
+      discriminator: {
+        propertyName: "petType",
+        mapping: [
+          { value: "cat", typeName: "Cat" },
+          { value: "dog", typeName: "Dog" },
+        ],
+      },
+    };
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      extends: "Pet",
+      properties: [
+        { name: "breed", value: primitive("string"), optional: true },
+      ],
+    };
+
+    context.registerType(pet);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root: pet, context };
+  }
+
+  it("restates the inherited tag as a Literal with a default", () => {
+    const { root, context } = polymorphic();
+    const result = generatePython(root, context);
+
+    expect(result).toContain('petType: Literal["cat"] = "cat"');
+    expect(result).toContain('petType: Literal["dog"] = "dog"');
+  });
+
+  it("imports Literal for the tag", () => {
+    const { root, context } = polymorphic();
+
+    expect(generatePython(root, context)).toContain("Literal");
+  });
+});

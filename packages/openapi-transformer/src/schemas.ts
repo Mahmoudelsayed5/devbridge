@@ -77,6 +77,7 @@ interface PendingObject {
   readonly name: string;
   properties: readonly ObjectProperty[];
   extends?: string;
+  discriminator?: Discriminator;
 }
 
 /** Everything one parse needs to pass around. */
@@ -100,6 +101,12 @@ interface Build {
    * already hold references to the branch types.
    */
   readonly allObjects: Map<string, PendingObject>;
+  /**
+   * Object schemas that declare a discriminator, with the schema still
+   * attached. Resolved after the whole graph exists, because the implicit
+   * form needs to know which types ended up extending this one.
+   */
+  readonly polymorphicBases: { name: string; declared: Record<string, unknown> }[];
   /** Tag rewrites to apply once every schema has been built. */
   readonly tagRewrites: {
     typeName: string;
@@ -431,6 +438,14 @@ function objectNode(
     });
   }
 
+  // A discriminator on an object schema marks it a polymorphic base. Which
+  // types it selects cannot be known yet, so only the declaration is kept.
+  const declared = record(schema["discriminator"]);
+
+  if (declared !== undefined) {
+    build.polymorphicBases.push({ name, declared });
+  }
+
   const node: PendingObject = {
     kind: "object",
     name,
@@ -596,6 +611,7 @@ function nodeForKey(build: Build, key: string, depth: number): TypeNode {
     // reference to it during a cycle sees the finished properties.
     placeholder.properties = built.properties;
     placeholder.extends = built.extends;
+    placeholder.discriminator = built.discriminator;
 
     // `built` is a throwaway — the placeholder is the node everything else
     // holds a reference to, so it is the one a later tag rewrite must find.
@@ -886,6 +902,91 @@ function resolveInheritance(build: Build): void {
   }
 }
 
+/**
+ * Works out which subtypes each polymorphic base selects, and with what tag.
+ *
+ * Deferred to here because the implicit form needs the finished hierarchy: a
+ * base with no `mapping` is tagged by schema *name*, and the set of subtypes
+ * is simply the types that ended up extending it — which is not known while
+ * any one of them is still being built.
+ *
+ * A base that selects nothing is left without a discriminator rather than
+ * carrying an empty one, so a generator can treat "has a discriminator" as
+ * "has something to emit".
+ */
+function resolvePolymorphicBases(build: Build): void {
+  const keyByName = new Map(
+    [...build.names].map(([key, name]) => [name, key]),
+  );
+
+  for (const { name, declared } of build.polymorphicBases) {
+    const base = build.allObjects.get(name);
+    const propertyName = text(declared["propertyName"]);
+
+    if (base === undefined) {
+      continue;
+    }
+
+    if (propertyName === undefined) {
+      build.diagnostics.push({
+        severity: "warning",
+        code: "openapi/discriminator-without-property",
+        message: `"${name}" has a discriminator with no propertyName, so its subtypes cannot be told apart.`,
+        hint: "A discriminator must name the property that carries the tag.",
+      });
+
+      continue;
+    }
+
+    const mapping: DiscriminatorMapping[] = [];
+    const explicit = record(declared["mapping"]);
+
+    if (explicit === undefined) {
+      // Implicit: every type extending this base, tagged with its schema name.
+      for (const candidate of build.allObjects.values()) {
+        if (candidate.extends !== name) {
+          continue;
+        }
+
+        mapping.push({
+          value: keyByName.get(candidate.name) ?? candidate.name,
+          typeName: candidate.name,
+        });
+      }
+    } else {
+      for (const [value, target] of Object.entries(explicit)) {
+        const key = refKey({ $ref: target });
+        const typeName = key === undefined ? undefined : build.names.get(key);
+
+        if (typeName === undefined) {
+          build.diagnostics.push({
+            severity: "warning",
+            code: "openapi/discriminator-unknown-target",
+            message: `"${name}" maps the discriminator value "${value}" to ${JSON.stringify(target)}, which is not a schema in this document.`,
+          });
+
+          continue;
+        }
+
+        mapping.push({ value, typeName });
+      }
+    }
+
+    if (mapping.length === 0) {
+      build.diagnostics.push({
+        severity: "warning",
+        code: "openapi/discriminator-no-subtypes",
+        message: `"${name}" declares a discriminator on "${propertyName}" but nothing extends it, so there is nothing to select.`,
+        hint: "A subtype declares its base with an allOf containing a $ref to it.",
+      });
+
+      continue;
+    }
+
+    base.discriminator = { propertyName, mapping };
+  }
+}
+
 /** True when `node` inherits a property of this name from a base. */
 function inheritsProperty(
   build: Build,
@@ -1005,6 +1106,7 @@ export function parseOpenApiSchemas(
     resolved: new Map(),
     building: new Set(),
     allObjects: new Map(),
+    polymorphicBases: [],
     tagRewrites: [],
   };
 
@@ -1041,6 +1143,7 @@ export function parseOpenApiSchemas(
   // Inheritance first: the tag rewrite below needs to know whether a tag
   // property is this type's own or comes from a base.
   resolveInheritance(build);
+  resolvePolymorphicBases(build);
   applyTagRewrites(build);
 
   const types = build.context.getTypes();

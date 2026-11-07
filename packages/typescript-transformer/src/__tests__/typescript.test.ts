@@ -452,3 +452,65 @@ describe("inheritance", () => {
     );
   });
 });
+
+describe("polymorphic hierarchies", () => {
+  function polymorphic(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "petType", value: primitive("string"), optional: false },
+      ],
+      discriminator: {
+        propertyName: "petType",
+        mapping: [
+          { value: "cat", typeName: "Cat" },
+          { value: "dog", typeName: "Dog" },
+        ],
+      },
+    };
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      extends: "Pet",
+      properties: [
+        { name: "breed", value: primitive("string"), optional: true },
+      ],
+    };
+
+    context.registerType(pet);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root: pet, context };
+  }
+
+  it("narrows each subtype's inherited tag to a literal", () => {
+    const { root, context } = polymorphic();
+    const result = generateTypeScript(root, context);
+
+    // The tag is declared on Pet, so a subtype restates it narrower — which
+    // is what makes Cat | Dog discriminate.
+    expect(result).toContain('petType: "cat";');
+    expect(result).toContain('petType: "dog";');
+  });
+
+  it("leaves the base's own tag wide", () => {
+    const { root, context } = polymorphic();
+    const result = generateTypeScript(root, context);
+
+    expect(result.split("interface Cat")[0]).toContain("petType: string;");
+  });
+});

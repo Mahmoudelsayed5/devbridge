@@ -3,7 +3,7 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after inheritance entered the IR.
+Last updated after polymorphic serialization landed.
 
 ---
 
@@ -11,12 +11,12 @@ Last updated after inheritance entered the IR.
 
 | | |
 | --- | --- |
-| Phases complete | 0–7 of 9 (Chrome extension deliberately skipped) |
+| Phases complete | 0–13 (Chrome extension deliberately skipped) |
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
-| Tests | 467, all passing |
-| Source / test lines | ~6,300 / ~2,800 |
+| Tests | 489, all passing |
+| Source / test lines | ~11,000 / ~7,300 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
 
 ```
@@ -406,6 +406,49 @@ notion of one type extending another. It does now — but nothing yet connects
 a discriminator to a base type's subtypes, so those three still emit the union
 untyped. The model is in place; the wiring is the next step, not this one.
 
+### Phase 13 — Polymorphic serialization
+
+The step phase 12 set up. A `discriminator` declared on an **object schema**
+rather than on a `oneOf` names *this type's subtypes*, and that is the form
+Java and C# can serialise — their annotations go on a base type, and after
+phase 12 there is one to put them on.
+
+`ObjectNode.discriminator` carries it. Java emits `@JsonTypeInfo` plus
+`@JsonSubTypes`, C# `[JsonPolymorphic]` plus `[JsonDerivedType]`, and both
+stop reporting the union as unsupported. With no explicit `mapping`, the
+subtypes are whatever ended up extending the base — which is resolvable only
+after the whole graph exists, so it happens in the same post-pass as
+inheritance.
+
+**The real compiler caught the design error, again.** The first version
+narrowed every subtype's tag to its own single value, and TypeScript refused
+the fixture outright:
+
+```
+types.ts(91,18): error TS2430: Interface 'TipperTruck' incorrectly extends interface 'Truck'.
+```
+
+It was right, and the mistake is worth naming: in a hierarchy deeper than
+two, `TipperTruck extends Truck` with tags `tipper` and `truck`, narrowing
+`Truck.kind` to `"truck"` asserts something false — a `TipperTruck` *is* a
+`Truck` and carries `"tipper"`. A type's tag is the union of its own value
+and every descendant's, and only a leaf collapses to one. That is now what
+`tagFor` returns, and the three-deep case is in the fixture permanently.
+
+Two honest notes:
+
+- **Jackson annotations stay opt-in.** Jackson is a third-party dependency
+  and `javac` runs with no classpath for it, so emitting them by default
+  would produce code that does not compile — which `verify:generated` would
+  have caught, but the gate is right regardless. C# needs no flag, because
+  `System.Text.Json` is in the base library. That asymmetry surfaced a real
+  gap: the CLI could only turn annotations *off*, so Java's Jackson output
+  was unreachable from it. `--annotations` was added.
+- **The check proves compilation, not round-tripping.** A serializer
+  misconfiguration fails at run time, and `dotnet build` and `javac` cannot
+  see that. Verifying it properly would mean executing the generated code,
+  which is a larger step than this project takes today.
+
 ---
 
 ## Decisions that shaped the design
@@ -491,7 +534,6 @@ state.
 | Item | Why | Size |
 | --- | --- | --- |
 | **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
-| **Polymorphic serialization** | The IR now has both inheritance and discriminators; wiring them together would give Java `@JsonTypeInfo` / `@JsonSubTypes` and C# `[JsonPolymorphic]` / `[JsonDerivedType]` | medium |
 
 **Done since this list was written:**
 
@@ -500,6 +542,7 @@ state.
 - ~~Map types~~ — `MapNode` too; see phase 10.
 - ~~Discriminators~~ — see phase 11.
 - ~~Inheritance~~ — `allOf` is now read as `extends`; see phase 12.
+- ~~Polymorphic serialization~~ — see phase 13.
 
 - ~~OpenAPI → language models~~ — done, and it is the most interesting change
   in this list; see the phase 8 section below for what it cost and what it
@@ -607,11 +650,14 @@ Stated plainly, so nobody is surprised:
 - **A document of nothing but enums is refused.** `ParseResult.root` is an
   `ObjectNode`, so a schemas file with no object type has no honest root to
   return. Rare, but real for a shared enums file.
-- **A discriminator is not wired to a base type's subtypes.** TypeScript and
-  Python narrow on a literal tag. Java and C# could now carry `@JsonTypeInfo`
-  or `[JsonPolymorphic]`, since the IR has inheritance — but nothing connects
-  the two yet, so they still emit the union untyped and say so. Go has no sum
-  type and cannot in any case.
+- **A bare `oneOf` is still untyped in Java, C# and Go.** A discriminator on
+  a *base schema* is now fully wired, but branches that merely sit in a
+  `oneOf` without a shared base have nothing to annotate. The three report it
+  and say what to change; Go cannot do it in any case.
+- **Jackson annotations are opt-in.** Java emits them only with
+  `--annotations`, because Jackson is a third-party dependency and `javac`
+  has no classpath for it. C# needs no flag: `System.Text.Json` is in the
+  base library.
 - **Only single inheritance.** An `allOf` naming several base schemas keeps
   the first and merges the rest, because Java and C# allow one base apiece.
 

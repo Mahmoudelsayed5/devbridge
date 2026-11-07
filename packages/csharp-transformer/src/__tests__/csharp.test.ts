@@ -429,3 +429,85 @@ describe("inheritance", () => {
     );
   });
 });
+
+describe("polymorphic serialization", () => {
+  function polymorphic(): { root: ObjectNode; context: TransformationContext } {
+    const context = new TransformationContext();
+
+    const pet: ObjectNode = {
+      kind: "object",
+      name: "Pet",
+      properties: [
+        { name: "petType", value: primitive("string"), optional: false },
+      ],
+      discriminator: {
+        propertyName: "petType",
+        mapping: [
+          { value: "cat", typeName: "Cat" },
+          { value: "dog", typeName: "Dog" },
+        ],
+      },
+    };
+
+    const cat: ObjectNode = {
+      kind: "object",
+      name: "Cat",
+      extends: "Pet",
+      properties: [
+        { name: "meowVolume", value: primitive("integer"), optional: false },
+      ],
+    };
+
+    const dog: ObjectNode = {
+      kind: "object",
+      name: "Dog",
+      extends: "Pet",
+      properties: [
+        { name: "breed", value: primitive("string"), optional: true },
+      ],
+    };
+
+    context.registerType(pet);
+    context.registerType(cat);
+    context.registerType(dog);
+
+    return { root: pet, context };
+  }
+
+  it("annotates the base with JsonPolymorphic and derived types", () => {
+    const { root, context } = polymorphic();
+    const emitted = generateCSharpFiles(root, context);
+
+    expect(emitted["Pet.cs"]).toContain(
+      '[JsonPolymorphic(TypeDiscriminatorPropertyName = "petType")]',
+    );
+
+    expect(emitted["Pet.cs"]).toContain('[JsonDerivedType(typeof(Cat), "cat")]');
+    expect(emitted["Pet.cs"]).toContain('[JsonDerivedType(typeof(Dog), "dog")]');
+  });
+
+  it("adds the serialization using", () => {
+    const { root, context } = polymorphic();
+
+    expect(generateCSharpFiles(root, context)["Pet.cs"]).toContain(
+      "using System.Text.Json.Serialization;",
+    );
+  });
+
+  it("annotates only the base", () => {
+    const { root, context } = polymorphic();
+
+    expect(generateCSharpFiles(root, context)["Cat.cs"]).not.toContain(
+      "JsonPolymorphic",
+    );
+  });
+
+  it("stops reporting the union as unsupported", () => {
+    const { root, context } = polymorphic();
+    const diagnostics = cSharpGenerator.generate(root, context).diagnostics ?? [];
+
+    expect(diagnostics.map((d) => d.code)).not.toContain(
+      "csharp/discriminator-unsupported",
+    );
+  });
+});

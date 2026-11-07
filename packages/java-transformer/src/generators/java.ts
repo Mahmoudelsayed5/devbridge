@@ -195,6 +195,47 @@ function toFields(
   });
 }
 
+/**
+ * The Jackson annotations that make a base deserialise polymorphically.
+ *
+ * Jackson needs to be told two things: which property carries the tag,
+ * and which class each value means. `@JsonTypeInfo` says the first and
+ * `@JsonSubTypes` the second. They go on the *base*, which is why this
+ * had to wait for the type graph to have inheritance — before that
+ * there was no base type to annotate.
+ *
+ * `visible = true` keeps the tag property readable on the deserialised
+ * object; without it Jackson consumes the field and leaves it null.
+ */
+function writePolymorphicAnnotations(
+  object: ObjectNode,
+  writer: CodeWriter,
+): void {
+  const discriminator = object.discriminator;
+
+  if (discriminator === undefined) {
+    return;
+  }
+
+  writer.line(
+    `@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = ${JSON.stringify(discriminator.propertyName)}, visible = true)`,
+  );
+
+  writer.block(
+    "@JsonSubTypes({",
+    () => {
+      discriminator.mapping.forEach((entry, index) => {
+        const last = index === discriminator.mapping.length - 1;
+
+        writer.line(
+          `@JsonSubTypes.Type(value = ${javaClassName(entry.typeName)}.class, name = ${JSON.stringify(entry.value)})${last ? "" : ","}`,
+        );
+      });
+    },
+    "})",
+  );
+}
+
 function writeClass(
   object: ObjectNode,
   writer: CodeWriter,
@@ -221,6 +262,10 @@ function writeClass(
   }
 
   const fields = toFields(object);
+
+  if (annotate) {
+    writePolymorphicAnnotations(object, writer);
+  }
 
   const extendsClause =
     object.extends === undefined
@@ -452,6 +497,11 @@ function fileHeader(
     imports.push("import com.fasterxml.jackson.annotation.JsonProperty;");
   }
 
+  if (options.jsonAnnotations === true && object.discriminator !== undefined) {
+    imports.push("import com.fasterxml.jackson.annotation.JsonSubTypes;");
+    imports.push("import com.fasterxml.jackson.annotation.JsonTypeInfo;");
+  }
+
   if (imports.length > 0) {
     // Sorted so `com.*` precedes `java.*`, which is the conventional order.
     writer.linesOf([...imports].sort()).blank();
@@ -535,6 +585,14 @@ export function generateJava(
     imports.push("import com.fasterxml.jackson.annotation.JsonValue;");
   }
 
+  if (
+    options.jsonAnnotations === true &&
+    objects.some((object) => object.discriminator !== undefined)
+  ) {
+    imports.push("import com.fasterxml.jackson.annotation.JsonSubTypes;");
+    imports.push("import com.fasterxml.jackson.annotation.JsonTypeInfo;");
+  }
+
   if (imports.length > 0) {
     writer.linesOf([...imports].sort()).blank();
   }
@@ -572,14 +630,24 @@ function discriminatorDiagnostics(
     ? context.getTypes()
     : [root, ...context.getTypes()];
 
-  return discriminatedUnions(all).map((discriminator) => ({
+  // A union whose branches share an annotated base *is* expressible now,
+  // so only report the ones that are not.
+  const handled = new Set(
+    all
+      .filter((object) => object.discriminator !== undefined)
+      .map((object) => object.discriminator?.propertyName),
+  );
+
+  return discriminatedUnions(all)
+    .filter((discriminator) => !handled.has(discriminator.propertyName))
+    .map((discriminator) => ({
     severity: "warning" as const,
     code: "java/discriminator-unsupported",
     message: `The union discriminated by "${discriminator.propertyName}" (${discriminator.mapping
       .map((entry) => entry.value)
       .join(", ")}) is emitted untyped.`,
-    hint: "Java would need the branches to share a sealed interface, which the type graph has no way to express.",
-  }));
+      hint: "Give the branches a shared base schema carrying the discriminator, and Jackson annotations are emitted on it.",
+    }));
 }
 export const javaGenerator: TargetGenerator = {
   id: "java",
