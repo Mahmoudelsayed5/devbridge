@@ -3,7 +3,8 @@
 What exists, how it got here, the decisions that shaped it, and what comes
 next.
 
-Last updated after polymorphic serialization landed.
+Last updated after phase 13, with the phase numbering reconciled against the
+blueprint's own — see "Beyond the blueprint".
 
 ---
 
@@ -11,13 +12,14 @@ Last updated after polymorphic serialization landed.
 
 | | |
 | --- | --- |
-| Phases complete | 0–13 (Chrome extension deliberately skipped) |
+| Phases complete | 0–7 as the blueprint planned them, then 8–13 beyond it |
 | Packages | 14 libraries + web app + VS Code extension |
 | Source formats | 3 (JSON, SQL, OpenAPI) |
 | Target formats | 8 (TypeScript, Java, Go, Python, C#, Mermaid ERD, DBML, Postman) |
 | Tests | 489, all passing |
 | Source / test lines | ~11,000 / ~7,300 |
 | CI | lint, build + test on Ubuntu and Windows, plus generated-output compilation |
+| **Released** | **the web app only** — no tags, no npm packages, extension unpublished |
 
 ```
                         ┌── TypeScript ─┐
@@ -165,8 +167,8 @@ pasted twice would transform cleanly and quietly lose a field. Detecting it
 means scanning the text yourself — by the time `JSON.parse` returns, the
 evidence is gone. `duplicates.ts` walks the document with a frame stack, which
 is what makes the distinctions that matter: a key is only a duplicate within
-*its own* object, a brace inside a string is not structure, and `"a"` is
-the same key as `"a"`. Reported as a warning, not an error: the document is
+*its own* object, a brace inside a string is not structure, and a key written
+`"\u0061"` is the same key as `"a"`. Reported as a warning, not an error: the document is
 still valid JSON and still transforms.
 
 **The repo had no linter, and could not have the obvious one.**
@@ -185,6 +187,46 @@ six times out of six here.
 
 **`noUnusedLocals` found nothing**, which was the point. A clean result makes
 it a ratchet rather than a cleanup.
+
+**Alongside those**, three smaller things the same audit produced: the
+repository hygiene a public project is expected to have (`CONTRIBUTING.md`,
+`SECURITY.md`, `.editorconfig`, a grouped Dependabot config), an MIT licence,
+and the web app deployed to GitHub Pages — which required making the
+repository public, since Pages is not available on private repositories on
+the free plan.
+
+One more change belongs here rather than to a phase. **Integer width** became
+a distinction in the IR: `integer` and `long` are separate, decided once by
+`integerWidth` and mapped to `long` / `int64` per target, and the parser warns
+when a whole number has *already* lost precision in `JSON.parse`. Phase 8
+later made that heuristic unnecessary for OpenAPI, where `format: int64`
+states the answer outright — but it is still the only thing available when the
+source is a JSON sample.
+
+---
+
+## Beyond the blueprint — phases 8 to 13
+
+**The blueprint planned nine phases.** Phases 0–7 above are its build plan,
+delivered as written; its own phases 8 and 9 were productization and AI, both
+deliberately deferred and still deferred today — see "What's next".
+
+Everything from here was *not* in the plan. It came from two places: auditing
+the project as a public repository rather than as a work in progress, and —
+much more often — from what each change exposed about the one before it.
+That chain is worth reading as a chain:
+
+| | What it added | What it exposed |
+| --- | --- | --- |
+| 8 | OpenAPI → language models | Go emitted uncompilable code for a reference cycle |
+| 9 | Enums in the IR | the JSON parser must *not* infer a closed set |
+| 10 | Maps in the IR | the same again — a declaration, not a guess |
+| 11 | Discriminated unions | three targets had no base type to hang one on |
+| 12 | Inheritance | …so the IR grew one, and Python's dataclass ordering broke |
+| 13 | Polymorphic serialization | a tag in a deep hierarchy is a union, not a value |
+
+Four of those six were found by generating the output and compiling it with
+the real toolchain, not by reading the code.
 
 ### Phase 8 — OpenAPI → language models
 
@@ -501,8 +543,8 @@ is **valid in the target language** — `tsc --strict`, `javac -Xlint:all`,
 `TreatWarningsAsErrors`, `@dbml/core` for DBML, and a browser render for
 Mermaid.
 
-This is the decision that paid for itself most often. Three bugs found this way
-that every unit test had passed:
+This is the decision that paid for itself most often, and it kept paying:
+**six** bugs found this way that every unit test had passed.
 
 1. **Mermaid rejects a comma inside an attribute type** — `decimal(10,2)`
    broke the diagram. The same probe also disproved a *second* assumption: the
@@ -511,12 +553,30 @@ that every unit test had passed:
    `Ref a.b > c.d`.
 3. **A UTF-8 BOM** made valid JSON unparseable — found because PowerShell
    wrote a test fixture with one.
+4. **Go rejects a struct containing itself by value** (phase 8) — the Go
+   generator had emitted uncompilable code for a reference cycle for
+   months, unnoticed because no JSON sample can describe one.
+5. **A Python dataclass hierarchy raises at import time** (phase 12) when a
+   base's optional field precedes a subtype's required one.
+6. **A discriminator tag in a deep hierarchy is a union, not a value**
+   (phase 13) — TypeScript rejected the narrowing outright.
+
+The last three all came from *adding a case to a fixture and running the
+compiler*. None would have been found by reading the generator.
 
 ### Make the privacy claim testable
 
-The web app says "nothing is uploaded or stored" on screen. A claim like that
-rots silently, so a test enforces it across the app *and* all seven library
-packages.
+The web app says "nothing is uploaded or stored" on screen. A claim like
+that rots silently, so a test scans the app *and* every library package that
+reaches the browser for `fetch`, `XMLHttpRequest`, `WebSocket`,
+`sendBeacon` and web storage.
+
+**And it rotted exactly the way predicted.** The list of scanned packages is
+hand-maintained, and the five added for the SQL and OpenAPI families were
+never added to it — so they shipped to the browser unchecked from phase 5
+until this was noticed. None of them violated the rule, which is luck rather
+than design. The list now carries a comment saying that completeness *is*
+the test, because a guarantee enforced over part of the code is not enforced.
 
 ### Failure is data, not an exception
 
@@ -529,62 +589,63 @@ state.
 
 ## What's next
 
-### Immediate — small, unblocked
+The engine is done in every direction the blueprint asked for, and in six it
+did not. What is left is almost entirely **not** engine work.
 
-| Item | Why | Size |
-| --- | --- | --- |
-| **Publish the extension** | The `.vsix` builds in CI but has never been pushed to the Marketplace, which needs a publisher account | small |
+### Nothing is released yet
 
-**Done since this list was written:**
+This is the real blocker, and it is bigger than the one item it used to be
+in this list. The only way to use any of this today is to clone the repo or
+open the web app:
 
-- ~~Real enums~~ — `EnumNode` is in the IR and every target declares one; see
-  phase 9 below.
-- ~~Map types~~ — `MapNode` too; see phase 10.
-- ~~Discriminators~~ — see phase 11.
-- ~~Inheritance~~ — `allOf` is now read as `extends`; see phase 12.
-- ~~Polymorphic serialization~~ — see phase 13.
+| | State |
+| --- | --- |
+| All 16 packages | `private: true`, version `0.1.0` — `@devbridge/core` cannot be installed |
+| Git tags / GitHub releases | none |
+| CHANGELOG | none |
+| VS Code extension | builds and packages to a `.vsix` on every CI run; never published |
+| Web app | the one thing that *is* live, on GitHub Pages |
 
-- ~~OpenAPI → language models~~ — done, and it is the most interesting change
-  in this list; see the phase 8 section below for what it cost and what it
-  found.
+Two decisions gate the rest, and neither is technical:
 
-- ~~Duplicate JSON keys~~ — `packages/json-transformer/src/duplicates.ts`
-  now reports them as warnings (`json/duplicate-key`), through both
-  `parseJson` and `validateJson`. `JSON.parse` keeps the last value and says
-  nothing, so this was real silent data loss. It needed the hand-written
-  scanner the list predicted: a brace inside a string, an escaped quote in a
-  key, and `"a"` versus `"a"` all have to be handled, and all three are
-  tested.
-- ~~A linter~~ — oxlint, not ESLint. **The reason is worth recording:**
-  typescript-eslint does not support TypeScript 7 (their issue #10940), and
-  this repo targets the native port, so the obvious choice was unavailable
-  rather than merely unattractive. oxlint needs no TypeScript integration to
-  run its rules. It found 13 problems in ~9,000 lines; the one that mattered
-  was a local `text` variable shadowing a module-level `text()` helper in the
-  OpenAPI parser, which made the helper unreachable inside that function.
-  `pnpm lint` runs as its own CI job.
-- ~~Compiler-level dead-code detection~~ — `noUnusedLocals` and
-  `noUnusedParameters` across all three tsconfigs. Found nothing, which is
-  the useful outcome: it now cannot accumulate.
-- ~~Repository hygiene~~ — `CONTRIBUTING.md`, `SECURITY.md`, `.editorconfig`
-  and a grouped Dependabot config.
-- ~~Integer width~~ — `integer` and `long` are now distinct in the IR, decided
-  once by `integerWidth`, mapping to `long` / `int64` per target. The parser
-  also warns when a whole number has already lost precision in `JSON.parse`.
-- ~~Deploy the web app~~ — live at
-  <https://mahmoudelsayed5.github.io/devbridge/>, published from `main` by
-  `.github/workflows/deploy-pages.yml`. The repository was made public so that
-  Pages would work on the free plan.
-- ~~A licence~~ — MIT.
-- ~~Phase 6~~ — see above.
+- **The name.** `devbridge` is already taken on npm by an unrelated
+  Homebridge tool, so the libraries would need the `@devbridge` scope. More
+  importantly, *Devbridge* was a real software consultancy (acquired around
+  2022), which is worth checking before the name goes in front of anyone.
+  Renaming is nearly free now and expensive once people know it.
+- **Who owns it.** Publishing under a personal account and then promoting
+  the result inside an employer is where IP assignment clauses bite. Worth
+  settling before the first demo, not after.
 
-### Phase 7 — Integrations *(VS Code done; Chrome deliberately not)*
+The zero-risk first step is a **GitHub release**: a `v0.1.0` tag, a
+CHANGELOG, and the `.vsix` attached. No accounts, no agreements, no name
+registration, and colleagues can install it with one command.
 
-The VS Code extension is built and packages to an installable `devbridge.vsix`
-that CI uploads on every run. See the README for what it does.
+### Repository gaps
 
-**Chrome extension: recommended against, for now.** The blueprint lists it,
-but the case has weakened since it was written:
+| Item | Why |
+| --- | --- |
+| **No coverage measurement** | 489 tests and no measurement of what they do not reach |
+| **No code scanning** | Dependabot covers dependencies; nothing scans this repo's own code |
+| **No issue or PR templates** | `.github/` holds only the workflows and `dependabot.yml` |
+| **The web app has never had an accessibility audit** | It is the public front door, and carries 12 aria/role attributes in total |
+
+### Engine work, if it is wanted
+
+None of this is blocking anything; it is listed because the shape of each
+is already understood.
+
+| Item | Note |
+| --- | --- |
+| **Enums and maps from JSON** | Deliberately *not* done — a sample cannot prove a set is closed or that a key is data. Would need a confidence rule, and the honest default is to keep refusing. |
+| **Real round-trip verification** | `verify:generated` proves the output compiles, not that it serialises correctly. Would mean executing the generated code. |
+| **Syntax highlighting in the web editor** | A plain `<textarea>` today, which keeps the bundle dependency-free. CodeMirror is the obvious upgrade. |
+
+
+### The integration that was declined
+
+**A Chrome extension is in the blueprint and was not built.** The case had
+weakened by the time the slot came up:
 
 - The obvious version — paste JSON in a browser, get types — is **what the
   live web app already does**, and the web app needs no install and no store
@@ -605,12 +666,17 @@ prevent.
 reaches the IntelliJ/WebStorm/DataGrip audience the SQL family is aimed at and
 has no equivalent already shipping.
 
-### Phase 8–9 — Later
+### Productization and AI — still deferred
+
+These were the **blueprint's** phases 8 and 9, which is why the numbering
+above does not reach them: the work that actually happened took those
+numbers instead.
 
 Productization (accounts, team features, API plans) and AI assistance
-(repair, explanation, difficult transformations). Both explicitly deferred
-until the deterministic engine has proven demand — monetization should follow
-evidence of usage rather than drive architecture.
+(repair, explanation, difficult transformations). Both deferred until the
+deterministic engine has proven demand — monetization should follow
+evidence of usage rather than drive architecture. Nothing since has
+changed that, and the engine still has no users to learn from.
 
 ### Further sources worth considering
 
