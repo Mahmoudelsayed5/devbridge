@@ -13,6 +13,17 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("../../../../..", import.meta.url));
 
+/**
+ * Everything that reaches the browser.
+ *
+ * This list is the whole test, so it has to be complete: the web app imports
+ * `@devbridge/engine`, and the engine imports *every* parser and generator in
+ * order to register them. A package left out of this list still ships — it
+ * just stops being checked, which is the quiet way for this guarantee to
+ * become untrue. It has happened once already: the five packages added for
+ * the SQL and OpenAPI families shipped unchecked until this comment was
+ * written.
+ */
 const SHIPPED_ROOTS = [
   join(repoRoot, "apps", "web", "src"),
   join(repoRoot, "packages", "core", "src"),
@@ -23,6 +34,11 @@ const SHIPPED_ROOTS = [
   join(repoRoot, "packages", "go-transformer", "src"),
   join(repoRoot, "packages", "python-transformer", "src"),
   join(repoRoot, "packages", "csharp-transformer", "src"),
+  join(repoRoot, "packages", "sql-transformer", "src"),
+  join(repoRoot, "packages", "mermaid-transformer", "src"),
+  join(repoRoot, "packages", "dbml-transformer", "src"),
+  join(repoRoot, "packages", "openapi-transformer", "src"),
+  join(repoRoot, "packages", "postman-transformer", "src"),
 ];
 
 const NETWORK_PATTERNS = [
