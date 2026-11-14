@@ -15,7 +15,7 @@
   "files": ["dist"],
   "devDependencies": {
     "@devbridge/sql-transformer": "workspace:*",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "scripts": {
     "build": "tsc -b"
