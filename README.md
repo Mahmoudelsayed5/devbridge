@@ -323,6 +323,30 @@ to their TypeScript source, so `pnpm dev:web` needs no prior `tsc -b`.
 
 ## VS Code extension
 
+It is **not on the Marketplace** — see [the changelog](CHANGELOG.md) for why —
+so install it from the `.vsix` attached to a release.
+
+**From the UI, which needs nothing installed.** Download
+[`devbridge-0.1.0.vsix`](https://github.com/Mahmoudelsayed5/devbridge/releases/latest),
+then in VS Code open the Extensions view, click the `…` menu at its top right,
+and choose **Install from VSIX…**.
+
+**From a terminal**, if `code` is on your `PATH` (VS Code's installer adds it
+only when you tick that option; otherwise use **Shell Command: Install 'code'
+command in PATH** from the command palette):
+
+```bash
+curl -LO https://github.com/Mahmoudelsayed5/devbridge/releases/download/v0.1.0/devbridge-0.1.0.vsix
+```
+
+```bash
+code --install-extension devbridge-0.1.0.vsix
+```
+
+That URL is a plain public download — no account, no GitHub CLI, no login.
+
+**Building it yourself**, which is what contributors want:
+
 ```bash
 pnpm package:vscode     # apps/vscode/devbridge.vsix
 code --install-extension apps/vscode/devbridge.vsix

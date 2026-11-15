@@ -83,11 +83,23 @@ rather than passed off silently. The full list is in
 ### Not published
 
 The libraries are not on npm and the extension is not on the Marketplace.
-Install the extension from the `.vsix` attached to this release:
+Install the extension from the `.vsix` attached below.
+
+The simplest route needs nothing installed: download the file, then in VS Code
+open the Extensions view, click the `…` menu at its top right, and choose
+**Install from VSIX…**.
+
+From a terminal, if `code` is on your `PATH`:
+
+```bash
+curl -LO https://github.com/Mahmoudelsayed5/devbridge/releases/download/v0.1.0/devbridge-0.1.0.vsix
+```
 
 ```bash
 code --install-extension devbridge-0.1.0.vsix
 ```
+
+That URL is a plain public download — no account and no GitHub CLI needed.
 
 [Unreleased]: https://github.com/Mahmoudelsayed5/devbridge/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Mahmoudelsayed5/devbridge/releases/tag/v0.1.0
